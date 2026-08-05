@@ -187,6 +187,10 @@ async def main():
             llm_server_ok = model_manager.start_server(settings.active_model, timeout=120)
         else:
             llm_server_ok = True
+            # Detect what model the external server has loaded
+            detection = model_manager.detect_running_model()
+            if detection:
+                model_manager.adopt_external_server(detection)
     else:
         llm_server_ok = False
 

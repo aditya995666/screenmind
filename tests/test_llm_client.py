@@ -174,6 +174,30 @@ class TestTranscribeAudio:
         with pytest.raises(ValueError, match="does not support audio"):
             transcribe_audio(b"fake wav bytes")
 
+    @patch("screenmind.engine.llm_client.chat")
+    @patch("screenmind.engine.model_manager.is_audio_capable", return_value=True)
+    def test_strips_unused_tokens(self, _cap, mock_chat):
+        """<unusedN> garbage tokens from audio encoder are stripped."""
+        mock_chat.return_value = "<unused0><unused1>Hello world<unused99>"
+        result = transcribe_audio(b"fake wav bytes")
+        assert result == "Hello world"
+
+    @patch("screenmind.engine.llm_client.chat")
+    @patch("screenmind.engine.model_manager.is_audio_capable", return_value=True)
+    def test_strips_only_unused_tokens(self, _cap, mock_chat):
+        """Normal text with angle brackets is preserved."""
+        mock_chat.return_value = "The value is <100 and >50"
+        result = transcribe_audio(b"fake wav bytes")
+        assert result == "The value is <100 and >50"
+
+    @patch("screenmind.engine.llm_client.chat")
+    @patch("screenmind.engine.model_manager.is_audio_capable", return_value=True)
+    def test_all_unused_returns_empty(self, _cap, mock_chat):
+        """If result is entirely garbage tokens, returns empty string."""
+        mock_chat.return_value = "<unused0><unused1><unused2>"
+        result = transcribe_audio(b"fake wav bytes")
+        assert result == ""
+
 
 class TestGenerate:
     """Tests for generate()."""

@@ -84,6 +84,10 @@ _server_process: Optional[subprocess.Popen] = None
 _server_lock = threading.Lock()
 _active_model_key: Optional[str] = None
 
+# External server state — set when we detect a server we didn't spawn
+_external_server: bool = False
+_external_model_name: Optional[str] = None  # model ID for non-listed models
+
 # Download state — single-flight + thread-safe reads/writes
 _download_lock = threading.Lock()      # guards the entire download→start lifecycle
 _download_state_lock = threading.Lock()  # guards state dict + cancel flag reads/writes
@@ -134,7 +138,63 @@ def cancel_download() -> bool:
     return False
 
 
+# ── External server detection ──────────────────────────────────────────
+
+def detect_running_model() -> Optional[dict]:
+    """
+    Probe a running llama-server's /v1/models to identify the loaded model.
+    Returns:
+      {"matched": True, "key": str, "quant": str, "name": str}  — known model
+      {"matched": False, "name": str}                            — unknown model
+      None                                                       — probe failed
+    """
+    try:
+        import httpx
+        port = settings.llama_server_port
+        r = httpx.get(f"http://127.0.0.1:{port}/v1/models", timeout=3)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        model_list = data.get("data", [])
+        if not model_list:
+            return None
+        model_id = model_list[0].get("id", "")
+        if not model_id:
+            return None
+
+        # Match against known variants by hf_file substring
+        for m in AVAILABLE_MODELS:
+            for v in m.get("variants", []):
+                if v["hf_file"] in model_id:
+                    return {"matched": True, "key": m["key"], "quant": v["quant"], "name": m["name"]}
+        # No match — unknown model
+        # Clean up the model_id for display (strip path, keep filename)
+        display_name = model_id.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        return {"matched": False, "name": display_name}
+    except Exception as e:
+        logger.debug(f"External model detection failed: {e}")
+        return None
+
+
+def adopt_external_server(detection: dict) -> None:
+    """
+    Record that an externally-started server is active.
+    Called from main.py when check_llama_server() finds a running server.
+    """
+    global _active_model_key, _external_server, _external_model_name
+    _external_server = True
+    if detection.get("matched"):
+        _active_model_key = detection["key"]
+        _external_model_name = None
+        logger.info(f"Adopted external server: {detection['name']} ({detection.get('quant', '?')})")
+    else:
+        _active_model_key = None
+        _external_model_name = detection.get("name", "Unknown model")
+        logger.info(f"Adopted external server: {_external_model_name} (not in model list)")
+
+
 # ── Model directory + variant helpers ──────────────────────────────────
+
 
 def _models_dir() -> Path:
     """Returns ~/.screenmind/models/ — cross-platform, auto-created."""
@@ -236,8 +296,10 @@ def list_models() -> list:
             for v in m.get("variants", [])
         ]
         status = "not_installed"
-        if is_model_downloaded(m["key"]):
-            status = "active" if m["key"] == _active_model_key else "downloaded"
+        if m["key"] == _active_model_key and is_server_running():
+            status = "active"
+        elif is_model_downloaded(m["key"]):
+            status = "downloaded"
         result.append({
             **m, "status": status,
             "active_variant": active_quant,
@@ -404,6 +466,11 @@ def start_server(model_key: Optional[str] = None, timeout: int = 60, hf_file: st
         return False
 
     with _server_lock:
+        # Clear external server state — we're taking over
+        global _external_server, _external_model_name
+        _external_server = False
+        _external_model_name = None
+
         # Already running with this model?
         if _server_process and _server_process.poll() is None and _active_model_key == key:
             return True
@@ -644,8 +711,18 @@ def get_active_model() -> Optional[str]:
 
 
 def is_server_running() -> bool:
-    """Check if llama-server process is alive."""
-    return _server_process is not None and _server_process.poll() is None
+    """Check if llama-server process is alive (internal or external)."""
+    if _server_process is not None and _server_process.poll() is None:
+        return True
+    if _external_server:
+        # External server — verify it's still responding
+        try:
+            import httpx
+            r = httpx.get(f"http://127.0.0.1:{settings.llama_server_port}/health", timeout=2)
+            return r.status_code == 200
+        except Exception:
+            return False
+    return False
 
 
 def get_model_status() -> dict:
@@ -694,6 +771,7 @@ def get_model_status() -> dict:
             "status": "ready",
             "active_model": active,
             "model_downloaded": True,
+            "external_model": _external_model_name,
             "capabilities": caps,
             "download": None,
         }

@@ -283,8 +283,22 @@ async function loadModels() {
       && ['downloading', 'starting'].includes(_modelState.status);
     const dlModel = typeof _modelState !== 'undefined' && _modelState.download
       ? _modelState.download.model : null;
+    // External/unknown model warning card
+    let externalCard = '';
+    const extModel = typeof _modelState !== 'undefined' ? _modelState.externalModel : null;
+    if (extModel && (typeof _modelState === 'undefined' || _modelState.status === 'ready')) {
+      externalCard = `
+        <div class="model-row" style="border:1px solid rgba(251,191,36,0.3);background:rgba(251,191,36,0.05);margin-bottom:8px">
+          <div class="model-info">
+            <div class="model-name">\u26a0\ufe0f ${extModel}
+              <span class="model-badge" style="background:rgba(251,191,36,0.2);color:#fbbf24">External</span>
+            </div>
+            <div class="model-meta" style="color:#fbbf24;font-size:0.75rem">Unknown model running on server — may lack vision or audio support</div>
+          </div>
+        </div>`;
+    }
 
-    listEl.innerHTML = models.map(m => {
+    listEl.innerHTML = externalCard + models.map(m => {
       const isDownloading = isLifecycleActive && dlModel === m.key;
 
       // Build per-variant rows

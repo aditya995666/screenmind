@@ -355,6 +355,7 @@ async function pollStatus() {
       _modelState.modelDownloaded = s.model.model_downloaded;
       _modelState.download = s.model.download;
       _modelState.message = s.model.message || '';
+      _modelState.externalModel = s.model.external_model || null;
       if (s.model.capabilities) _modelState.capabilities = s.model.capabilities;
 
       if (prev !== 'ready' && _modelState.status === 'ready') {
@@ -461,7 +462,27 @@ async function _renderModelHubCards() {
 
   const isLifecycleActive = ['downloading', 'starting', 'cancelling'].includes(_modelState.status);
 
-  container.innerHTML = _modelState.models.map((m, i) => {
+  // External/unknown model warning card
+  let externalCard = '';
+  if (_modelState.externalModel && _modelState.status === 'ready') {
+    externalCard = `
+      <div class="mh-card" style="border:1px solid rgba(251,191,36,0.4);background:rgba(251,191,36,0.06);animation-delay:0s">
+        <div class="mh-card-top">
+          <div class="mh-card-info">
+            <div class="mh-card-name">\u26a0\ufe0f ${_modelState.externalModel}
+              <span class="mh-badge" style="background:rgba(251,191,36,0.2);color:#fbbf24">External</span>
+            </div>
+            <div class="mh-card-meta" style="color:#fbbf24">Unknown model — may lack vision or audio support. Voice memos and screen analysis may not work correctly.</div>
+          </div>
+        </div>
+        <div class="mh-card-caps">
+          <span class="mh-card-cap" style="opacity:0.5">\u2753 Audio unknown</span>
+          <span class="mh-card-cap" style="opacity:0.5">\u2753 Vision unknown</span>
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = externalCard + _modelState.models.map((m, i) => {
     const isDownloading = isLifecycleActive && _modelState.download && _modelState.download.model === m.key;
 
     // Build variant rows — each variant is its own row with individual actions
@@ -575,10 +596,15 @@ function _updateModelHubFooter() {
 
   const st = _modelState;
   if (st.status === 'ready') {
-    const info = st.models.find(m => m.key === st.activeModel);
-    const name = info ? info.name : (st.activeModel || 'Unknown');
-    dot.className = 'mh-footer-dot mh-dot-ready';
-    text.innerHTML = 'Running \u00b7 ' + name + ' loaded';
+    if (st.externalModel) {
+      dot.className = 'mh-footer-dot mh-dot-starting';
+      text.innerHTML = 'Running \u00b7 ' + st.externalModel + ' (external)';
+    } else {
+      const info = st.models.find(m => m.key === st.activeModel);
+      const name = info ? info.name : (st.activeModel || 'Unknown');
+      dot.className = 'mh-footer-dot mh-dot-ready';
+      text.innerHTML = 'Running \u00b7 ' + name + ' loaded';
+    }
   } else if (st.status === 'starting') {
     dot.className = 'mh-footer-dot mh-dot-starting';
     text.innerHTML = 'Starting server...';
@@ -740,9 +766,15 @@ function _updateTimelinePill() {
 
   const st = _modelState;
   if (st.status === 'ready') {
-    const info = st.models.find(m => m.key === st.activeModel);
-    textEl.textContent = info ? info.name : (st.activeModel || 'Model Hub');
-    dotEl.className = 'mh-trigger-dot mh-dot-ready';
+    if (st.externalModel) {
+      // Unknown external model — amber dot
+      textEl.textContent = st.externalModel;
+      dotEl.className = 'mh-trigger-dot mh-dot-starting';
+    } else {
+      const info = st.models.find(m => m.key === st.activeModel);
+      textEl.textContent = info ? info.name : (st.activeModel || 'Model Hub');
+      dotEl.className = 'mh-trigger-dot mh-dot-ready';
+    }
   } else if (st.status === 'downloading') {
     textEl.textContent = 'Downloading...';
     dotEl.className = 'mh-trigger-dot mh-dot-download';
