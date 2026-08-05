@@ -462,23 +462,55 @@ async function _renderModelHubCards() {
   const isLifecycleActive = ['downloading', 'starting', 'cancelling'].includes(_modelState.status);
 
   container.innerHTML = _modelState.models.map((m, i) => {
-    const isActive = m.status === 'active';
-    const isDownloaded = m.status === 'downloaded';
     const isDownloading = isLifecycleActive && _modelState.download && _modelState.download.model === m.key;
 
-    let badgeHtml;
-    if (isActive) badgeHtml = '<span class="mh-badge mh-badge-active">\u2713 Active</span>';
-    else if (isDownloading) badgeHtml = '<span class="mh-badge mh-badge-downloading">Downloading...</span>';
-    else if (isDownloaded) badgeHtml = '<span class="mh-badge mh-badge-downloaded">Downloaded</span>';
-    else badgeHtml = '<span class="mh-badge mh-badge-notinstalled">Not Installed</span>';
+    // Build variant rows — each variant is its own row with individual actions
+    const variantRows = (m.variants || []).map(v => {
+      const isThisActive = m.status === 'active' && v.quant === m.active_variant;
+      const isThisDownloaded = v.downloaded;
 
-    let actionHtml = '';
-    if (isActive) { actionHtml = ''; }
-    else if (isDownloading) { actionHtml = '<button class="mh-action-btn mh-btn-cancel" onclick="hubCancelDownload()">Cancel</button>'; }
-    else if (isLifecycleActive) { actionHtml = '<button class="mh-action-btn" disabled>Busy</button>'; }
-    else if (isDownloaded) { actionHtml = `<button class="mh-action-btn mh-btn-switch" data-model-key="${m.key}" onclick="hubSwitchModel('${m.key}')">Switch</button>`; }
-    else { actionHtml = `<button class="mh-action-btn mh-btn-download" data-model-key="${m.key}" onclick="hubDownloadModel('${m.key}')">Download</button>`; }
+      // Badge
+      let vBadge = '';
+      if (isThisActive) vBadge = '<span class="mh-badge mh-badge-active">\u2713 Active</span>';
+      else if (isThisDownloaded) vBadge = '<span class="mh-badge mh-badge-downloaded">Downloaded</span>';
 
+      // Action button
+      let vAction = '';
+      if (isDownloading) {
+        vAction = '<button class="mh-action-btn" disabled>Busy</button>';
+      } else if (isLifecycleActive) {
+        vAction = '<button class="mh-action-btn" disabled>Busy</button>';
+      } else if (isThisActive) {
+        vAction = '';  // No action for active variant
+      } else if (isThisDownloaded) {
+        vAction = `<button class="mh-action-btn mh-btn-switch" onclick="hubSwitchVariant('${m.key}', '${v.quant}')">Switch</button>`;
+      } else {
+        vAction = `<button class="mh-action-btn mh-btn-download" onclick="hubDownloadVariant('${m.key}', '${v.quant}')">Download</button>`;
+      }
+
+      // Delete button — enabled for downloaded non-active, disabled for active
+      let vDelete = '';
+      if (isThisActive) {
+        vDelete = '<button class="mh-btn-delete" disabled title="Cannot delete active variant">\ud83d\uddd1</button>';
+      } else if (isThisDownloaded && !isLifecycleActive) {
+        vDelete = `<button class="mh-btn-delete" onclick="hubDeleteVariant('${m.key}', '${v.quant}')" title="Delete variant">\ud83d\uddd1</button>`;
+      }
+
+      return `
+        <div class="mh-variant-item ${isThisActive ? 'mh-variant-active' : ''}">
+          <div class="mh-variant-info">
+            <span class="mh-variant-quant">${v.quant}</span>
+            <span class="mh-variant-size">${v.file_size}</span>
+            ${vBadge}
+          </div>
+          <div class="mh-variant-actions">
+            ${vDelete}
+            ${vAction}
+          </div>
+        </div>`;
+    }).join('');
+
+    // Download progress bar (shown at model level during download)
     let progressHtml = '';
     if (isDownloading) {
       const bytes = _modelState.download ? _modelState.download.downloaded_bytes || 0 : 0;
@@ -492,20 +524,23 @@ async function _renderModelHubCards() {
         </div>`;
     }
 
-    const cardClass = isActive ? 'mh-card mh-card-active' : isDownloading ? 'mh-card mh-card-downloading' : 'mh-card';
-
     return `
-      <div class="${cardClass}" data-model-key="${m.key}" style="animation-delay:${i * 0.08}s">
+      <div class="mh-card" data-model-key="${m.key}" style="animation-delay:${i * 0.08}s">
         <div class="mh-card-top">
           <div class="mh-card-info">
-            <div class="mh-card-name">${m.name} ${m.tier >= 2 ? '\u2b50' : ''} ${badgeHtml}</div>
+            <div class="mh-card-name">${m.name} ${m.tier >= 2 ? '\u2b50' : ''}
+              ${isDownloading ? '<span class="mh-badge mh-badge-downloading">Downloading...</span>' : ''}
+            </div>
             <div class="mh-card-meta">${m.size} params \u00b7 ${m.vram} VRAM \u00b7 ${m.quality}</div>
           </div>
-          <div>${actionHtml}</div>
+          ${isDownloading ? '<button class="mh-action-btn mh-btn-cancel" onclick="hubCancelDownload()">Cancel</button>' : ''}
         </div>
         <div class="mh-card-caps">
           ${m.audio ? '<span class="mh-card-cap">\ud83d\udd0a Audio</span>' : '<span class="mh-card-cap" style="opacity:0.4">\ud83d\udd07 No Audio</span>'}
           ${m.vision ? '<span class="mh-card-cap">\ud83d\udc41 Vision</span>' : ''}
+        </div>
+        <div class="mh-variant-list">
+          ${variantRows}
         </div>
         ${progressHtml}
       </div>`;
@@ -516,40 +551,17 @@ function _updateModelHubOverlay() {
   const overlay = document.getElementById('mh-overlay');
   if (!overlay || !overlay.classList.contains('visible')) return;
 
-  const isLifecycleActive = ['downloading', 'starting'].includes(_modelState.status);
-
-  _modelState.models.forEach(m => {
-    const card = overlay.querySelector(`[data-model-key="${m.key}"].mh-card`);
-    if (!card) return;
-
-    const isDownloading = isLifecycleActive && _modelState.download && _modelState.download.model === m.key;
-    const isActive = m.status === 'active';
-
-    card.classList.toggle('mh-card-active', isActive);
-    card.classList.toggle('mh-card-downloading', isDownloading);
-
-    const badge = card.querySelector('.mh-badge');
-    if (badge) {
-      if (isActive) { badge.className = 'mh-badge mh-badge-active'; badge.textContent = '\u2713 Active'; }
-      else if (isDownloading) { badge.className = 'mh-badge mh-badge-downloading'; badge.textContent = 'Downloading...'; }
-      else if (m.status === 'downloaded') { badge.className = 'mh-badge mh-badge-downloaded'; badge.textContent = 'Downloaded'; }
-      else { badge.className = 'mh-badge mh-badge-notinstalled'; badge.textContent = 'Not Installed'; }
-    }
-
-    const btn = card.querySelector('.mh-action-btn');
-    if (btn && !isActive) {
-      if (isLifecycleActive && !isDownloading) { btn.disabled = true; btn.textContent = 'Busy'; }
-      else if (!isDownloading) { btn.disabled = false; btn.textContent = m.status === 'downloaded' ? 'Switch' : 'Download'; }
-    }
-
-    if (isDownloading) {
+  // Update download progress bytes in-place (avoids full re-render flicker)
+  if (_modelState.download && _modelState.download.model) {
+    const card = overlay.querySelector(`[data-model-key="${_modelState.download.model}"].mh-card`);
+    if (card) {
       const bytesEl = card.querySelector('.mh-progress-bytes');
       if (bytesEl) {
-        const bytes = _modelState.download ? _modelState.download.downloaded_bytes || 0 : 0;
+        const bytes = _modelState.download.downloaded_bytes || 0;
         bytesEl.textContent = '\ud83d\udce6 ' + _formatBytes(bytes) + ' downloaded';
       }
     }
-  });
+  }
 
   _updateModelHubFooter();
 }
@@ -582,7 +594,7 @@ function _updateModelHubFooter() {
   }
 }
 
-window.hubDownloadModel = async function(key) {
+window.hubDownloadVariant = async function(key, quant) {
   _modelState.status = 'downloading';
   _modelState.download = { model: key, downloaded_bytes: 0, message: 'Starting download...' };
   _updateModelUI();
@@ -590,7 +602,7 @@ window.hubDownloadModel = async function(key) {
     const res = await fetch('/api/models/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
+      body: JSON.stringify({ key, quant }),
     });
     if (res.status === 409) {
       const j = await res.json();
@@ -619,6 +631,53 @@ window.hubDownloadModel = async function(key) {
   }
 };
 
+window.hubSwitchVariant = async function(key, quant) {
+  // Audio capability check
+  if (typeof _confirmAudioLoss === 'function' && !_confirmAudioLoss(key)) return;
+  // Confirm server restart
+  if (!confirm('Switching requires a server restart. Continue?')) return;
+  // Save variant preference then switch model
+  try {
+    await fetch('/api/models/variant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, quant }),
+    });
+    // If it's a different model, switch to it; if same model, variant endpoint already restarts
+    if (_modelState.activeModel !== key) {
+      await fetch('/api/models/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+    }
+    showToast(`Switching to ${key} (${quant})...`, 'info');
+    await _renderModelHubCards();
+  } catch (e) {
+    showToast('Failed to switch: ' + e.message, 'warning');
+  }
+};
+
+window.hubDeleteVariant = async function(key, quant) {
+  if (!confirm(`Delete the ${quant} variant? The model file will be removed from disk.`)) return;
+  try {
+    const res = await fetch('/api/models/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, quant }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      showToast(j.message || 'Variant deleted', 'info');
+      await _renderModelHubCards();
+    } else {
+      showToast(j.error || 'Delete failed', 'warning');
+    }
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'warning');
+  }
+};
+
 // Shared audio-loss confirmation — called by both overlay and Settings switch/install
 function _confirmAudioLoss(key) {
   const m = _modelState.models.find(x => x.key === key);
@@ -632,21 +691,6 @@ function _confirmAudioLoss(key) {
   return true;
 }
 
-window.hubSwitchModel = async function(key) {
-  if (!_confirmAudioLoss(key)) return;
-  try {
-    await fetch('/api/models/switch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
-    });
-    showToast('Switching model...', 'info');
-    _modelState.status = 'starting';
-    _updateModelUI();
-  } catch (e) {
-    showToast('Failed to switch: ' + e.message, 'warning');
-  }
-};
 
 window.retryModelStart = async function() {
   showToast('Retrying server start...', 'info');
@@ -742,35 +786,27 @@ function _updateModelUI() {
   }
 }
 
-// In-place Settings model list update (no full re-fetch/re-render)
+// In-place Settings model list update — only re-render on state transitions
+let _lastSettingsState = '';
 function _updateSettingsInPlace() {
   const listEl = document.getElementById('model-list');
   if (!listEl) return;
-  const isLifecycleActive = ['downloading', 'starting', 'cancelling'].includes(_modelState.status);
-  listEl.querySelectorAll('.model-row').forEach(row => {
-    // Find model key from the row's onclick handlers
-    const btn = row.querySelector('.btn-sm');
-    if (!btn) return;
-    const onclick = btn.getAttribute('onclick') || '';
-    const keyMatch = onclick.match(/'([^']+)'/);
-    if (!keyMatch) return;
-    const key = keyMatch[1];
-    const m = _modelState.models.find(x => x.key === key);
-    if (!m) return;
-    const isDownloading = isLifecycleActive && _modelState.download && _modelState.download.model === key;
-    // Update button state
-    if (isDownloading) {
-      const bytes = _modelState.download ? _modelState.download.downloaded_bytes || 0 : 0;
+
+  // Patch download progress bytes in-place every poll (no full re-render)
+  if (_modelState.download && _modelState.download.model) {
+    const bytesEls = listEl.querySelectorAll('[data-progress-bytes]');
+    bytesEls.forEach(el => {
+      const bytes = _modelState.download.downloaded_bytes || 0;
       const bytesStr = typeof _formatBytes === 'function' ? _formatBytes(bytes) : bytes + ' B';
-      row.querySelector('.model-action').innerHTML = '<span style="font-size:0.75rem;color:var(--accent)">' + bytesStr + '</span> <button class="btn-sm" onclick="hubCancelDownload()" style="color:#f87171;border-color:rgba(239,68,68,0.3);margin-left:6px">Cancel</button>';
-    } else if (isLifecycleActive && m.status !== 'active') {
-      btn.disabled = true;
-      btn.textContent = 'Busy';
-      btn.style.opacity = '0.4';
-    } else if (!isLifecycleActive && m.status === 'downloaded' && btn.textContent === 'Busy') {
-      btn.disabled = false;
-      btn.textContent = 'Switch';
-      btn.style.opacity = '';
-    }
-  });
+      el.textContent = '\ud83d\udce6 ' + bytesStr;
+    });
+  }
+
+  // Full re-render only when state actually changed (avoids redundant API calls)
+  const stateKey = _modelState.status + '|' + _modelState.activeModel + '|' +
+    (_modelState.models || []).map(m => m.status + m.active_variant).join(',');
+  if (stateKey !== _lastSettingsState) {
+    _lastSettingsState = stateKey;
+    if (typeof loadModels === 'function') loadModels();
+  }
 }

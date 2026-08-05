@@ -36,6 +36,7 @@ async def pull_model(request: Request):
     """
     body = await request.json()
     key = body.get("tag", "") or body.get("key", "")
+    quant = body.get("quant")  # optional: selected variant from dropdown
 
     info = model_manager.get_model_info(key)
     if not info:
@@ -49,10 +50,11 @@ async def pull_model(request: Request):
             status_code=409,
         )
 
-    # Fire-and-forget in a background thread — do NOT block the event loop (#1)
+    # Fire-and-forget in a background thread — do NOT block the event loop
     threading.Thread(
         target=model_manager.download_and_start,
         args=(key,),
+        kwargs={"quant": quant},
         daemon=True,
     ).start()
 
@@ -114,3 +116,44 @@ async def cancel_download():
     if cancelled:
         return JSONResponse({"status": "cancelled"})
     return JSONResponse({"error": "No active download to cancel"}, status_code=400)
+
+
+@router.post("/variant")
+async def set_variant(request: Request):
+    """Change selected variant for a model. Restarts server if model is active."""
+    body = await request.json()
+    key = body.get("key", "")
+    quant = body.get("quant", "")
+
+    info = model_manager.get_model_info(key)
+    if not info:
+        return JSONResponse({"error": "Unknown model"}, status_code=400)
+    if not any(v["quant"] == quant for v in info.get("variants", [])):
+        return JSONResponse({"error": "Unknown variant"}, status_code=400)
+
+    # Save preference
+    variants = dict(settings.model_variants)
+    variants[key] = quant
+    settings.save_runtime_overrides({"model_variants": variants})
+
+    # If this is the active model AND new variant is downloaded → restart
+    if model_manager.get_active_model() == key and model_manager.is_variant_downloaded(key, quant):
+        threading.Thread(target=model_manager.restart_server, daemon=True).start()
+
+    return JSONResponse({"status": "ok"})
+
+
+@router.post("/delete")
+async def delete_model_endpoint(request: Request):
+    """Delete a specific variant or all variants of a model."""
+    body = await request.json()
+    key = body.get("key", "")
+    quant = body.get("quant")  # optional — if omitted, delete all variants
+
+    if quant:
+        result = model_manager.delete_variant(key, quant)
+    else:
+        result = model_manager.delete_model(key)
+
+    status_code = 200 if result.get("ok") else 409
+    return JSONResponse(result, status_code=status_code)

@@ -39,7 +39,7 @@ def check_llama_server() -> bool:
         return True
     elif status["status"] == "unreachable":
         logger.error(f"FAIL - Cannot reach llama-server at {settings.llama_server_host}")
-        logger.info(f"Start it with: llama-server -hf unsloth/gemma-4-E2B-it-GGUF:Q4_K_M --mmproj-auto -ngl 99 --port {settings.llama_server_port}")
+        logger.info(f"Start it with: llama-server -hf ggml-org/gemma-4-E2B-it-GGUF:gemma-4-E2B-it-Q4_0 --mmproj-auto -ngl 99 --port {settings.llama_server_port}")
         return False
     else:
         logger.info(f"WARN - llama-server issue: {status['detail']}")
@@ -277,7 +277,13 @@ async def main():
                 if _shutdown.is_set():
                     logger.info("Shutdown in progress — discarding memo")
                     return
-                # Save to database as a voice memo activity
+                # Determine if transcription succeeded or fell back
+                has_transcript = transcript and len(transcript.strip()) >= 3
+                if not has_transcript:
+                    logger.warning("Voice memo transcription empty — saving with fallback summary")
+                    transcript = ""
+                # Always save to DB — even without transcription, user can
+                # play back the audio and see the screenshot
                 from screenmind.storage.models import ScreenshotEntry
                 from datetime import datetime
                 entry = ScreenshotEntry(
@@ -289,22 +295,53 @@ async def main():
                     analyzed=False,
                 )
                 activity_id = db.insert_activity(entry)
-                # Update with transcription
+                # Update with transcription (or fallback)
                 from screenmind.storage.models import ActivityRecord
+                summary = transcript[:200] if has_transcript else "Voice memo (transcription unavailable)"
                 analysis = ActivityRecord(
                     app_name="Voice Memo",
                     activity_category="other",
-                    activity_summary=transcript[:200] if transcript else "Voice memo",
+                    activity_summary=summary,
                     detailed_context=str(wav_path),
                     mood="neutral",
-                    confidence=0.9,
+                    confidence=0.9 if has_transcript else 0.1,
                 )
                 db.update_activity_analysis(activity_id, analysis)
-                logger.info(f"Saved: {transcript[:60]}...")
-                show_overlay_notification("✅ Memo Saved", transcript[:50] if transcript else "Saved", duration=2.0, color="#10b981")
+                if has_transcript:
+                    logger.info(f"Saved: {transcript[:60]}...")
+                    show_overlay_notification("✅ Memo Saved", transcript[:50], duration=2.0, color="#10b981")
+                else:
+                    logger.info("Saved voice memo (no transcription)")
+                    show_overlay_notification("✅ Memo Saved", "Audio saved — transcription unavailable", duration=2.5, color="#f59e0b")
             except Exception as e:
                 logger.error(f"Transcription failed: {e}")
-                show_overlay_notification("❌ Failed", str(e)[:50], duration=2.0, color="#ef4444")
+                # Still save to DB — user can play back audio, screenshot is preserved
+                try:
+                    if not _shutdown.is_set():
+                        from screenmind.storage.models import ScreenshotEntry, ActivityRecord
+                        from datetime import datetime
+                        entry = ScreenshotEntry(
+                            timestamp=datetime.now(),
+                            screenshot_path=str(screenshot_path) if screenshot_path else "",
+                            window_title="Voice Memo",
+                            detected_app_name="Voice Memo",
+                            bookmarked=True,
+                            analyzed=False,
+                        )
+                        activity_id = db.insert_activity(entry)
+                        analysis = ActivityRecord(
+                            app_name="Voice Memo",
+                            activity_category="other",
+                            activity_summary="Voice memo (transcription failed)",
+                            detailed_context=str(wav_path),
+                            mood="neutral",
+                            confidence=0.1,
+                        )
+                        db.update_activity_analysis(activity_id, analysis)
+                        logger.info("Saved voice memo despite transcription failure")
+                except Exception as db_err:
+                    logger.error(f"Failed to save voice memo fallback: {db_err}")
+                show_overlay_notification("❌ Transcription Failed", "Audio saved — transcription failed", duration=2.5, color="#ef4444")
 
         threading.Thread(target=_transcribe, daemon=True).start()
 

@@ -491,40 +491,46 @@ class AnalysisWorker:
                     except Exception as e:
                         logger.debug(f"Text organization failed (non-fatal): {e}")
 
-            # 4. Developer context enrichment (if coding activity)
-            #    Runs for both "minor" (git may have changed) and "full" tiers.
-            dev_ctx = None
-            if self._dev_context.is_coding_activity(
-                category=analysis.activity_category,
-                app_name=capture.app_name,
-                window_title=capture.window_title,
-            ):
-                dev_ctx = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self._dev_context.get_context(
-                        window_title=capture.window_title,
-                        visible_text=analysis.visible_text_snippets,
-                    ),
-                )
+            # 4+5. Developer context + Semantic embedding — run in parallel
+            #       Both are independent CPU tasks, no shared state.
+            loop = asyncio.get_event_loop()
 
-            # 5. Semantic embedding
-            #    Runs for both "minor" (new OCR text = new vector) and "full" tiers.
-            embedding = None
-            if self._embedder and self._embedder_available:
-                try:
-                    embedding = await asyncio.get_event_loop().run_in_executor(
+            async def _get_dev_context():
+                if self._dev_context.is_coding_activity(
+                    category=analysis.activity_category,
+                    app_name=capture.app_name,
+                    window_title=capture.window_title,
+                ):
+                    return await loop.run_in_executor(
                         None,
-                        lambda: self._embedder.embed_activity(
-                            summary=analysis.activity_summary,
-                            details=analysis.detailed_context,
+                        lambda: self._dev_context.get_context(
+                            window_title=capture.window_title,
                             visible_text=analysis.visible_text_snippets,
-                            app_name=analysis.app_name,
-                            category=analysis.activity_category,
-                            scene_description=analysis.scene_description,
                         ),
                     )
-                except Exception as e:
-                    logger.debug(f"Embedding failed: {e}")
+                return None
+
+            async def _get_embedding():
+                if self._embedder and self._embedder_available:
+                    try:
+                        return await loop.run_in_executor(
+                            None,
+                            lambda: self._embedder.embed_activity(
+                                summary=analysis.activity_summary,
+                                details=analysis.detailed_context,
+                                visible_text=analysis.visible_text_snippets,
+                                app_name=analysis.app_name,
+                                category=analysis.activity_category,
+                                scene_description=analysis.scene_description,
+                            ),
+                        )
+                    except Exception as e:
+                        logger.debug(f"Embedding failed: {e}")
+                return None
+
+            dev_ctx, embedding = await asyncio.gather(
+                _get_dev_context(), _get_embedding()
+            )
 
             # 6. Update DB with all results
             analysis_label = f"cache:minor" if tier == "minor" else f"full:{settings.analysis_mode}"

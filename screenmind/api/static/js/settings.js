@@ -285,114 +285,144 @@ async function loadModels() {
       ? _modelState.download.model : null;
 
     listEl.innerHTML = models.map(m => {
-      const isActive = m.status === 'active';
-      const isDownloaded = m.status === 'downloaded';
       const isDownloading = isLifecycleActive && dlModel === m.key;
 
-      const statusBadge = isActive
-        ? '<span class="model-badge model-active">✓ Active</span>'
-        : isDownloading
-        ? '<span class="model-badge" style="background:rgba(139,92,246,0.15);color:var(--accent)">Downloading...</span>'
-        : isDownloaded
-        ? '<span class="model-badge model-downloaded">Downloaded</span>'
-        : '<span class="model-badge model-not-installed">Not Installed</span>';
+      // Build per-variant rows
+      const variantRows = (m.variants || []).map(v => {
+        const isThisActive = m.status === 'active' && v.quant === m.active_variant;
+        const isThisDownloaded = v.downloaded;
 
-      let actionBtn = '';
-      if (isActive) {
-        actionBtn = ''; // Already in use
-      } else if (isDownloading) {
-        // Show progress + cancel
+        // Badge
+        let vBadge = '';
+        if (isThisActive) vBadge = '<span class="model-badge model-active">\u2713 Active</span>';
+        else if (isThisDownloaded) vBadge = '<span class="model-badge model-downloaded">Downloaded</span>';
+
+        // Action button
+        let vAction = '';
+        if (isDownloading || isLifecycleActive) {
+          vAction = '<button class="btn-sm" disabled style="opacity:0.4">Busy</button>';
+        } else if (isThisActive) {
+          vAction = '';
+        } else if (isThisDownloaded) {
+          vAction = `<button class="btn-sm btn-switch" onclick="settingsSwitchVariant('${m.key}', '${v.quant}')">Switch</button>`;
+        } else {
+          vAction = `<button class="btn-sm btn-install" onclick="settingsInstallVariant('${m.key}', '${v.quant}')">Download</button>`;
+        }
+
+        // Delete button
+        let vDelete = '';
+        if (isThisActive) {
+          vDelete = '<button class="btn-sm" disabled style="opacity:0.3;padding:2px 8px" title="Cannot delete active variant">\ud83d\uddd1</button>';
+        } else if (isThisDownloaded && !isLifecycleActive) {
+          vDelete = `<button class="btn-sm" onclick="settingsDeleteVariant('${m.key}', '${v.quant}')" title="Delete variant" style="color:#f87171;border-color:rgba(239,68,68,0.3);padding:2px 8px">\ud83d\uddd1</button>`;
+        }
+
+        return `
+          <div class="model-variant-item ${isThisActive ? 'model-variant-active' : ''}" data-model-key="${m.key}">
+            <div class="model-variant-info">
+              <span class="model-variant-quant">${v.quant}</span>
+              <span class="model-variant-size">${v.file_size}</span>
+              ${vBadge}
+            </div>
+            <div class="model-variant-actions">
+              ${vDelete}
+              ${vAction}
+            </div>
+          </div>`;
+      }).join('');
+
+      // Download progress
+      let progressHtml = '';
+      if (isDownloading) {
         const bytes = _modelState.download ? _modelState.download.downloaded_bytes || 0 : 0;
         const bytesStr = typeof _formatBytes === 'function' ? _formatBytes(bytes) : bytes + ' B';
-        actionBtn = '<span style="font-size:0.75rem;color:var(--accent)">' + bytesStr + '</span> <button class="btn-sm" onclick="hubCancelDownload()" style="color:#f87171;border-color:rgba(239,68,68,0.3);margin-left:6px">Cancel</button>';
-      } else if (isLifecycleActive) {
-        actionBtn = '<button class="btn-sm" disabled style="opacity:0.4;cursor:not-allowed">Busy</button>';
-      } else if (isDownloaded) {
-        actionBtn = `<button class="btn-sm btn-switch" onclick="switchModel('${m.key}')">Switch</button>`;
-      } else {
-        actionBtn = `<button class="btn-sm btn-install" onclick="installModel('${m.key}')">Install & Use</button>`;
+        progressHtml = `<div style="padding:4px 12px;font-size:0.75rem;color:var(--accent)"><span data-progress-bytes>\ud83d\udce6 ${bytesStr}</span> <button class="btn-sm" onclick="hubCancelDownload()" style="color:#f87171;border-color:rgba(239,68,68,0.3);margin-left:6px">Cancel</button></div>`;
       }
 
       return `
-        <div class="model-row ${isActive ? 'model-row-active' : ''} ${isDownloading ? 'model-row-downloading' : ''}">
+        <div class="model-row" data-model-key="${m.key}">
           <div class="model-info">
-            <div class="model-name">${m.name} ${statusBadge}</div>
-            <div class="model-meta">${m.size} params · ${m.vram} VRAM · ${m.quality}</div>
+            <div class="model-name">${m.name}
+              ${isDownloading ? '<span class="model-badge" style="background:rgba(139,92,246,0.15);color:var(--accent)">Downloading...</span>' : ''}
+            </div>
+            <div class="model-meta">${m.size} params \u00b7 ${m.vram} VRAM \u00b7 ${m.quality}</div>
           </div>
-          <div class="model-action">${actionBtn}</div>
-        </div>`;
+        </div>
+        ${variantRows}
+        ${progressHtml}`;
     }).join('');
   } catch (e) {
-    listEl.innerHTML = '<div class="settings-note">⚠️ Could not load models. Is Ollama running?</div>';
+    listEl.innerHTML = '<div class="settings-note">\u26a0\ufe0f Could not load models.</div>';
   }
 }
 
-let _pullAbort = null;
 
-window.installModel = async function(tag) {
-  // Audio capability check (shared with overlay)
-  if (typeof _confirmAudioLoss === 'function' && !_confirmAudioLoss(tag)) return;
-  // Confirmation dialog
-  if (!confirm(`Download and activate ${tag}?\nThis will download the model via Ollama. Continue?`)) return;
 
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = 'Cancel';
-  btn.classList.add('btn-downloading');
-  btn.disabled = false;
-
-  // Allow cancel via abort controller
-  _pullAbort = new AbortController();
-  let cancelled = false;
-
-  btn.onclick = function() {
-    if (_pullAbort) { _pullAbort.abort(); cancelled = true; }
-    btn.textContent = 'Cancelling...';
-    btn.disabled = true;
-  };
-
+window.settingsInstallVariant = async function(key, quant) {
+  if (typeof _confirmAudioLoss === 'function' && !_confirmAudioLoss(key)) return;
+  if (!confirm(`Download ${key} (${quant})?\nThis will download the model. Continue?`)) return;
   try {
-    await fetch('/api/models/pull', {
+    const res = await fetch('/api/models/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag }),
-      signal: _pullAbort.signal,
+      body: JSON.stringify({ key, quant }),
     });
-    if (!cancelled) {
-      // Auto-switch after install
-      await fetch('/api/models/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag }),
-      });
-      showToast(`${tag} installed and activated!`, 'success');
+    if (res.ok) {
+      showToast('Download started. Check Model Hub for progress.', 'info');
+    } else {
+      const j = await res.json().catch(() => ({}));
+      showToast(j.error || 'Download failed to start', 'warning');
     }
     loadModels();
   } catch (e) {
-    if (cancelled || e.name === 'AbortError') {
-      showToast(`Download cancelled`, 'warning');
-    } else {
-      showToast(`Failed to install ${tag}`, 'warning');
-    }
+    showToast('Failed to start download: ' + e.message, 'warning');
     loadModels();
-  } finally {
-    _pullAbort = null;
   }
 };
 
-window.switchModel = async function(tag) {
-  // Audio capability check (shared with overlay)
-  if (typeof _confirmAudioLoss === 'function' && !_confirmAudioLoss(tag)) return;
+window.settingsSwitchVariant = async function(key, quant) {
+  if (typeof _confirmAudioLoss === 'function' && !_confirmAudioLoss(key)) return;
+  if (!confirm('Switching requires a server restart. Continue?')) return;
   try {
-    await fetch('/api/models/switch', {
+    // Save variant preference
+    await fetch('/api/models/variant', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag }),
+      body: JSON.stringify({ key, quant }),
     });
-    showToast(`Switched to ${tag}`, 'success');
+    // Switch to this model if it's a different model
+    const activeModel = typeof _modelState !== 'undefined' ? _modelState.activeModel : null;
+    if (activeModel !== key) {
+      await fetch('/api/models/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+    }
+    showToast(`Switching to ${key} (${quant})...`, 'info');
     loadModels();
-  } catch {
-    showToast('Failed to switch model', 'warning');
+  } catch (e) {
+    showToast('Failed to switch: ' + e.message, 'warning');
+  }
+};
+
+window.settingsDeleteVariant = async function(key, quant) {
+  if (!confirm(`Delete the ${quant} variant? The model file will be removed from disk.`)) return;
+  try {
+    const res = await fetch('/api/models/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, quant }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      showToast(j.message || 'Variant deleted', 'info');
+      loadModels();
+    } else {
+      showToast(j.error || 'Delete failed', 'warning');
+    }
+  } catch (e) {
+    showToast('Delete failed: ' + e.message, 'warning');
   }
 };
 // Hotkey capture function

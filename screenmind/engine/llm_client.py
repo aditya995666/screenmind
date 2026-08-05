@@ -202,7 +202,14 @@ def transcribe_audio(
         ],
     }]
 
-    return chat(messages, temperature=temperature, max_tokens=max_tokens, timeout=timeout)
+    result = chat(messages, temperature=temperature, max_tokens=max_tokens, timeout=timeout)
+
+    # Strip Gemma's <unusedN> garbage tokens — these appear when the audio
+    # encoder can't parse the input (too short, silence, noise)
+    import re
+    result = re.sub(r'<unused\d+>', '', result).strip()
+
+    return result
 
 
 def generate(

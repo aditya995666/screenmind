@@ -74,7 +74,7 @@ _ALLOWED_OVERRIDES = {
     "auto_pause_heavy_apps", "heavy_apps",
     "defer_analysis", "meeting_transcription",
     "meeting_apps",
-    "active_model", "retention_days",
+    "active_model", "model_variants", "retention_days",
     "obsidian_enabled", "obsidian_vault_path",
     "notion_enabled", "notion_token", "notion_database_id",
     "webhook_enabled", "webhook_url", "webhook_events", "webhook_secret", "webhook_headers",
@@ -134,6 +134,10 @@ class Settings(BaseSettings):
     active_model: str = Field(
         default="gemma-4-e2b",
         description="Active model key for llama-server",
+    )
+    model_variants: dict = Field(
+        default_factory=dict,
+        description="Per-model variant selection, e.g. {'gemma-4-e2b': 'Q8_0'}",
     )
     ollama_host: str = Field(
         default="http://localhost:11434",

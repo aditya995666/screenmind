@@ -4,7 +4,6 @@ Handles llama-server process lifecycle, GGUF model downloads, and model switchin
 """
 
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -12,7 +11,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional
 
 from screenmind.config import settings
 
@@ -28,10 +27,16 @@ AVAILABLE_MODELS = [
         "vram": "~4 GB",
         "quality": "Good",
         "tier": 1,
-        "hf_repo": "unsloth/gemma-4-E2B-it-GGUF",
-        "hf_file": "gemma-4-E2B-it-Q4_K_M.gguf",
+        "hf_repo": "ggml-org/gemma-4-E2B-it-GGUF",
+        "hf_file": "gemma-4-E2B-it-Q4_0.gguf",
+        "mmproj_file": "mmproj-gemma-4-E2B-it-Q8_0.gguf",
         "audio": True,
         "vision": True,
+        "variants": [
+            {"quant": "Q4_0", "hf_file": "gemma-4-E2B-it-Q4_0.gguf", "file_size": "~1.5 GB", "label": "Q4_0 — Smallest, fastest"},
+            {"quant": "Q8_0", "hf_file": "gemma-4-E2B-it-Q8_0.gguf", "file_size": "~2.7 GB", "label": "Q8_0 — Better quality"},
+            {"quant": "BF16", "hf_file": "gemma-4-E2B-it-BF16.gguf", "file_size": "~5.2 GB", "label": "BF16 — Full precision"},
+        ],
     },
     {
         "key": "gemma-4-e4b",
@@ -40,10 +45,16 @@ AVAILABLE_MODELS = [
         "vram": "~6 GB",
         "quality": "Great",
         "tier": 2,
-        "hf_repo": "unsloth/gemma-4-E4B-it-GGUF",
-        "hf_file": "gemma-4-E4B-it-Q4_K_M.gguf",
+        "hf_repo": "ggml-org/gemma-4-E4B-it-GGUF",
+        "hf_file": "gemma-4-E4B-it-Q4_0.gguf",
+        "mmproj_file": "mmproj-gemma-4-E4B-it-Q8_0.gguf",
         "audio": True,
         "vision": True,
+        "variants": [
+            {"quant": "Q4_0", "hf_file": "gemma-4-E4B-it-Q4_0.gguf", "file_size": "~2.5 GB", "label": "Q4_0 — Smallest, fastest"},
+            {"quant": "Q8_0", "hf_file": "gemma-4-E4B-it-Q8_0.gguf", "file_size": "~4.6 GB", "label": "Q8_0 — Better quality"},
+            {"quant": "BF16", "hf_file": "gemma-4-E4B-it-BF16.gguf", "file_size": "~9.0 GB", "label": "BF16 — Full precision"},
+        ],
     },
     {
         "key": "gemma-4-12b",
@@ -54,8 +65,16 @@ AVAILABLE_MODELS = [
         "tier": 3,
         "hf_repo": "bartowski/gemma-4-12B-it-GGUF",
         "hf_file": "gemma-4-12B-it-Q4_K_M.gguf",
+        "mmproj_file": "mmproj-gemma-4-12B-it-bf16.gguf",
         "audio": True,
         "vision": True,
+        "variants": [
+            {"quant": "IQ3_M",  "hf_file": "gemma-4-12B-it-IQ3_M.gguf",  "file_size": "~5.5 GB", "label": "IQ3_M — Smallest, lower quality"},
+            {"quant": "Q4_K_M", "hf_file": "gemma-4-12B-it-Q4_K_M.gguf", "file_size": "~7.5 GB", "label": "Q4_K_M — Balanced (default)"},
+            {"quant": "Q5_K_M", "hf_file": "gemma-4-12B-it-Q5_K_M.gguf", "file_size": "~8.7 GB", "label": "Q5_K_M — Better quality"},
+            {"quant": "Q6_K",   "hf_file": "gemma-4-12B-it-Q6_K.gguf",   "file_size": "~10 GB",  "label": "Q6_K — High quality"},
+            {"quant": "Q8_0",   "hf_file": "gemma-4-12B-it-Q8_0.gguf",   "file_size": "~13 GB",  "label": "Q8_0 — Near-lossless"},
+        ],
     },
 ]
 
@@ -98,6 +117,7 @@ def _clear_error_state() -> None:
         _set_download_state(status="idle", message="")
 
 
+
 def cancel_download() -> bool:
     """
     Request cancellation of an active download.
@@ -114,6 +134,14 @@ def cancel_download() -> bool:
     return False
 
 
+# ── Model directory + variant helpers ──────────────────────────────────
+
+def _models_dir() -> Path:
+    """Returns ~/.screenmind/models/ — cross-platform, auto-created."""
+    d = Path.home() / ".screenmind" / "models"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 
 def get_model_info(key: str) -> Optional[dict]:
     """Get model metadata by key."""
@@ -121,6 +149,42 @@ def get_model_info(key: str) -> Optional[dict]:
         if m["key"] == key:
             return m
     return None
+
+
+def get_effective_hf_file(key: str) -> str:
+    """Resolves user's variant choice → hf_file. Never mutates AVAILABLE_MODELS."""
+    info = get_model_info(key)
+    if not info:
+        return ""
+    quant = settings.model_variants.get(key)
+    if quant:
+        for v in info.get("variants", []):
+            if v["quant"] == quant:
+                return v["hf_file"]
+    return info["hf_file"]  # default
+
+
+def get_active_quant(key: str) -> str:
+    """Returns the quant string for user's selected variant (or default)."""
+    info = get_model_info(key)
+    if not info:
+        return ""
+    quant = settings.model_variants.get(key)
+    if quant and any(v["quant"] == quant for v in info.get("variants", [])):
+        return quant
+    # Default = first variant's quant
+    return info["variants"][0]["quant"] if info.get("variants") else ""
+
+
+def _quant_for_hf_file(key: str, hf_file: str) -> str:
+    """Reverse-map an hf_file → quant name (for path building)."""
+    info = get_model_info(key)
+    if not info:
+        return ""
+    for v in info.get("variants", []):
+        if v["hf_file"] == hf_file:
+            return v["quant"]
+    return ""
 
 
 def is_audio_capable(key: Optional[str] = None) -> bool:
@@ -139,112 +203,84 @@ def get_active_capabilities() -> dict:
     return {"audio": info.get("audio", False), "vision": info.get("vision", False)}
 
 
-def list_models() -> list:
-    """List all available models with download status."""
-    global _active_model_key
-    result = []
-    for m in AVAILABLE_MODELS:
-        status = "not_installed"
-        if is_model_downloaded(m["key"]):
-            status = "active" if m["key"] == _active_model_key else "downloaded"
-        result.append({**m, "status": status})
-    return result
+# ── Variant-aware download detection ──────────────────────────────────
 
-
-def is_model_downloaded(key: str) -> bool:
-    """
-    Check if a model's GGUF file is fully downloaded in the HuggingFace cache.
-
-    Guards against false positives from partial/interrupted downloads by checking:
-    1. The model cache directory exists
-    2. At least one .gguf blob file exists in snapshots/
-    3. No .incomplete files exist (HF hub creates these during downloads)
-    """
+def is_variant_downloaded(key: str, quant: str) -> bool:
+    """Check if a specific variant is downloaded in ~/.screenmind/models/."""
     info = get_model_info(key)
     if not info:
         return False
-    # Check HuggingFace hub cache
-    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-    if not cache_dir.exists():
+    variant = next((v for v in info.get("variants", []) if v["quant"] == quant), None)
+    if not variant:
         return False
-    repo_slug = info["hf_repo"].replace("/", "--")
-    model_cache = cache_dir / f"models--{repo_slug}"
-    if not model_cache.exists():
+    model_file = _models_dir() / key / quant / variant["hf_file"]
+    return model_file.exists() and model_file.stat().st_size > 1024 * 1024
+
+
+def is_model_downloaded(key: str) -> bool:
+    """Check if ANY variant of a model is downloaded (backward compat)."""
+    info = get_model_info(key)
+    if not info:
         return False
-
-    # Check for .incomplete files — indicates download was interrupted
-    for p in model_cache.rglob("*.incomplete"):
-        return False
-
-    # Verify at least one GGUF blob actually exists in snapshots
-    # HF cache stores actual files in blobs/ as hash-named files,
-    # and snapshots/ contains symlinks/pointers. Check blobs/ for non-empty files.
-    blobs_dir = model_cache / "blobs"
-    if blobs_dir.exists():
-        blob_files = [f for f in blobs_dir.iterdir() if f.is_file() and f.stat().st_size > 1024 * 1024]
-        if blob_files:
-            return True
-
-    # Fallback: check if any snapshot directory has content
-    snapshots_dir = model_cache / "snapshots"
-    if snapshots_dir.exists():
-        for snap in snapshots_dir.iterdir():
-            if snap.is_dir() and any(snap.iterdir()):
-                return True
-
-    return False
+    return any(is_variant_downloaded(key, v["quant"]) for v in info.get("variants", []))
 
 
-def _cleanup_incomplete_cache(hf_repo: str) -> None:
-    """Remove .incomplete files from a killed HF download to avoid disk waste."""
-    try:
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        repo_slug = hf_repo.replace("/", "--")
-        model_cache = cache_dir / f"models--{repo_slug}"
-        if model_cache.exists():
-            removed = 0
-            for p in model_cache.rglob("*.incomplete"):
-                try:
-                    p.unlink()
-                    removed += 1
-                except OSError:
-                    pass
-            if removed:
-                logger.info(f"Cleaned up {removed} incomplete file(s) for {hf_repo}")
-    except Exception as e:
-        logger.debug(f"Cache cleanup error: {e}")
+def list_models() -> list:
+    """List all available models with per-variant download status."""
+    global _active_model_key
+    result = []
+    for m in AVAILABLE_MODELS:
+        active_quant = get_active_quant(m["key"])
+        variants_with_status = [
+            {**v, "downloaded": is_variant_downloaded(m["key"], v["quant"])}
+            for v in m.get("variants", [])
+        ]
+        status = "not_installed"
+        if is_model_downloaded(m["key"]):
+            status = "active" if m["key"] == _active_model_key else "downloaded"
+        result.append({
+            **m, "status": status,
+            "active_variant": active_quant,
+            "variants": variants_with_status,
+        })
+    return result
 
 
-def _do_download(key: str) -> bool:
+
+def _do_download(key: str, hf_file: str, quant: str) -> bool:
     """
-    Internal: download a model GGUF from HuggingFace.
+    Internal: download a model GGUF + mmproj from HuggingFace.
     Caller must hold _download_lock. Updates _download_state as it progresses.
     Supports cancellation via _cancel_download_flag.
+
+    hf_file and quant are locked-in at call time — never re-resolved from config.
     """
     global _cancel_download_flag
     info = get_model_info(key)
     if not info:
         return False
 
+    variant_dir = _models_dir() / key / quant
+
     with _download_state_lock:
         _cancel_download_flag = False
     _set_download_state(
         active=True, model=key, status="downloading",
-        downloaded_bytes=0, message=f"Downloading {info['name']}...",
+        downloaded_bytes=0, message=f"Downloading {info['name']} ({quant})...",
     )
 
-    logger.info(f"Downloading {info['name']} from {info['hf_repo']}...")
+    logger.info(f"Downloading {info['name']} ({quant}) from {info['hf_repo']}...")
 
     try:
-        # Use hf_hub_download() Python API — `python -m huggingface_hub` is NOT
-        # a valid CLI entry point ("is a package and cannot be directly executed").
+        # Use sys.argv for paths — avoids injection if username has quotes
         cmd = [
             sys.executable, "-c",
-            "from huggingface_hub import hf_hub_download; "
-            f"hf_hub_download(repo_id='{info['hf_repo']}', filename='{info['hf_file']}')",
+            "import sys; from huggingface_hub import hf_hub_download; "
+            "hf_hub_download(repo_id=sys.argv[1], filename=sys.argv[2], local_dir=sys.argv[3])",
+            info["hf_repo"], hf_file, str(variant_dir),
         ]
 
-        # Redirect stdout to DEVNULL (progress is polled from cache-dir size).
+        # Redirect stdout to DEVNULL (progress is polled from dir size).
         # Capture stderr to a temp file so we keep error messages without
         # risking a PIPE deadlock — HF writes progress bars to stderr
         # continuously, which can fill the 64KB OS pipe buffer and hang.
@@ -256,11 +292,6 @@ def _do_download(key: str) -> bool:
             stderr=err_file,
         )
 
-        # Poll for progress while download runs
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        repo_slug = info["hf_repo"].replace("/", "--")
-        model_cache = cache_dir / f"models--{repo_slug}"
-
         while proc.poll() is None:
             # Check cancel flag (under lock for consistency)
             with _download_state_lock:
@@ -271,11 +302,16 @@ def _do_download(key: str) -> bool:
                     proc.kill()
                     proc.wait(timeout=10)
                 except Exception:
-                    pass  # Already dead or OS error — fine
+                    pass  # Already dead — fine
+                err_file.close()
                 # Brief sleep for Windows handle release before cleanup
                 time.sleep(0.5)
-                # Clean up .incomplete files to avoid disk waste
-                _cleanup_incomplete_cache(info["hf_repo"])
+                # Clean up partial variant dir
+                if variant_dir.exists():
+                    try:
+                        shutil.rmtree(variant_dir)
+                    except Exception as e:
+                        logger.debug(f"Cleanup error: {e}")
                 _set_download_state(
                     active=False, status="idle", model="",
                     downloaded_bytes=0, message="Download cancelled",
@@ -285,34 +321,60 @@ def _do_download(key: str) -> bool:
                 return False
 
             time.sleep(2)  # 2s check interval (faster cancel response)
+            # Poll progress from variant dir + .huggingface temp dir
             total_bytes = 0
             try:
-                if model_cache.exists():
-                    for f in model_cache.rglob("*"):
-                        if f.is_file():
-                            try:
-                                total_bytes += f.stat().st_size
-                            except OSError:
-                                pass
+                for scan_dir in [variant_dir, variant_dir / ".huggingface"]:
+                    if scan_dir.exists():
+                        for f in scan_dir.rglob("*"):
+                            if f.is_file():
+                                try:
+                                    total_bytes += f.stat().st_size
+                                except OSError:
+                                    pass
             except Exception:
                 pass
-            # Monotonic: never go backwards (#6)
+            # Monotonic: never go backwards
             cur = get_download_state().get("downloaded_bytes", 0)
             _set_download_state(downloaded_bytes=max(cur, total_bytes),
-                                message=f"Downloading {info['name']}...")
+                                message=f"Downloading {info['name']} ({quant})...")
 
-
-        if proc.returncode == 0:
-            logger.info(f"Download complete: {info['name']}")
-            err_file.close()
-            return True
-        else:
+        if proc.returncode != 0:
             err_file.seek(0)
             stderr = err_file.read().decode(errors="replace")[:200]
             err_file.close()
             logger.error(f"Download failed: {stderr}")
             _set_download_state(status="error", message=f"Download failed: {stderr[:100]}")
             return False
+        err_file.close()
+        logger.info(f"Model download complete: {info['name']} ({quant})")
+
+        # Download mmproj if not already present (shared per model)
+        mmproj_dir = _models_dir() / key
+        mmproj_path = mmproj_dir / info["mmproj_file"]
+        if not mmproj_path.exists():
+            logger.info(f"Downloading mmproj: {info['mmproj_file']}...")
+            _set_download_state(message=f"Downloading vision projector...")
+            cmd_mmproj = [
+                sys.executable, "-c",
+                "import sys; from huggingface_hub import hf_hub_download; "
+                "hf_hub_download(repo_id=sys.argv[1], filename=sys.argv[2], local_dir=sys.argv[3])",
+                info["hf_repo"], info["mmproj_file"], str(mmproj_dir),
+            ]
+            mmproj_proc = subprocess.Popen(
+                cmd_mmproj,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            mmproj_proc.wait(timeout=600)  # 10 min max for mmproj
+            if mmproj_proc.returncode != 0:
+                logger.error("mmproj download failed")
+                _set_download_state(status="error", message="Vision projector download failed")
+                return False
+            logger.info("mmproj download complete")
+
+        return True
     except Exception as e:
         logger.error(f"Download error: {e}")
         _set_download_state(status="error", message=f"Error: {str(e)[:100]}")
@@ -323,7 +385,7 @@ def _do_download(key: str) -> bool:
         return False
 
 
-def start_server(model_key: Optional[str] = None, timeout: int = 60) -> bool:
+def start_server(model_key: Optional[str] = None, timeout: int = 60, hf_file: str = None) -> bool:
     """
     Start llama-server with the specified model.
     If already running with the same model, does nothing.
@@ -331,6 +393,7 @@ def start_server(model_key: Optional[str] = None, timeout: int = 60) -> bool:
 
     Args:
         timeout: seconds to wait for /health (60 normal, 180 for cold start after download)
+        hf_file: if provided, use this file directly (avoids re-resolving from config)
     """
     global _server_process, _active_model_key
 
@@ -357,8 +420,25 @@ def start_server(model_key: Optional[str] = None, timeout: int = 60) -> bool:
             _server_process = None
             _active_model_key = None
 
-        # Build llama-server command
-        hf_spec = f"{info['hf_repo']}:{info['hf_file'].replace('.gguf', '')}"
+        # Resolve variant paths
+        if not hf_file:
+            hf_file = get_effective_hf_file(key)
+        quant = _quant_for_hf_file(key, hf_file)
+        if not quant:
+            logger.error(f"Cannot resolve quant for {hf_file}")
+            return False
+
+        model_path = _models_dir() / key / quant / hf_file
+        mmproj_path = _models_dir() / key / info["mmproj_file"]
+
+        # Pre-flight check — fail fast instead of waiting for timeout
+        if not model_path.exists():
+            logger.error(f"Model file not found: {model_path}")
+            return False
+        if not mmproj_path.exists():
+            logger.error(f"mmproj not found: {mmproj_path}")
+            return False
+
         port = settings.llama_server_port
 
         # Find llama-server binary: check project's llama/ folder first, then PATH
@@ -379,8 +459,8 @@ def start_server(model_key: Optional[str] = None, timeout: int = 60) -> bool:
 
         cmd = [
             llama_bin,
-            "-hf", hf_spec,
-            "--mmproj-auto",
+            "-m", str(model_path),
+            "--mmproj", str(mmproj_path),
             "--port", str(port),
             "-ngl", str(settings.num_gpu_layers),
             "-c", str(settings.context_window),
@@ -474,6 +554,7 @@ def stop_server():
 def switch_model(key: str) -> bool:
     """
     Switch to a different model (restarts server).
+    Verifies the selected variant exists; falls back to any downloaded variant.
     Respects _download_lock: refuses if a download lifecycle is active,
     and prevents concurrent switches from racing each other.
     Sets transient 'starting' state so UI shows "Booting up..." instead of "error".
@@ -484,6 +565,26 @@ def switch_model(key: str) -> bool:
     if not is_model_downloaded(key):
         logger.warning(f"Cannot switch to {key} — not downloaded")
         return False
+
+    # Resolve which variant to use — fall back if selected variant is missing
+    quant = get_active_quant(key)
+    hf_file = get_effective_hf_file(key)
+    if not is_variant_downloaded(key, quant):
+        # Fall back to any downloaded variant
+        for v in info.get("variants", []):
+            if is_variant_downloaded(key, v["quant"]):
+                quant = v["quant"]
+                hf_file = v["hf_file"]
+                # Update saved preference to this fallback
+                variants = dict(settings.model_variants)
+                variants[key] = quant
+                settings.save_runtime_overrides({"model_variants": variants})
+                logger.info(f"Fell back to variant {quant} for {key}")
+                break
+        else:
+            logger.warning(f"Cannot switch to {key} — no variant downloaded")
+            return False
+
     if not _download_lock.acquire(blocking=False):
         logger.warning("Lifecycle in progress, switch ignored")
         return False
@@ -494,7 +595,7 @@ def switch_model(key: str) -> bool:
             downloaded_bytes=0, message=f"Switching to {info['name']}...",
         )
         settings.save_runtime_overrides({"active_model": key})
-        result = start_server(key)
+        result = start_server(key, hf_file=hf_file)
         return result
     finally:
         _set_download_state(
@@ -629,19 +730,25 @@ def get_model_status() -> dict:
     }
 
 
-def _check_model_disk_space(key: str) -> bool:
+def _check_model_disk_space(key: str, quant: str = None) -> bool:
     """Check disk space before model download. Returns True if enough space."""
     info = get_model_info(key)
     if not info:
         return True
 
-    # Estimate GGUF sizes at Q4_K_M quantization
-    estimated_sizes = {
-        "gemma-4-e2b": 1.5 * 1024**3,
-        "gemma-4-e4b": 3.0 * 1024**3,
-        "gemma-4-12b": 7.5 * 1024**3,
-    }
-    model_size = estimated_sizes.get(key, 5 * 1024**3)  # default 5GB
+    # Use variant-specific file size if available, else estimate
+    model_size = 5 * 1024**3  # default 5GB
+    if quant:
+        variant = next((v for v in info.get("variants", []) if v["quant"] == quant), None)
+        if variant:
+            # Parse "~7.5 GB" → bytes
+            size_str = variant.get("file_size", "~5 GB")
+            try:
+                num = float(size_str.replace("~", "").replace("GB", "").strip())
+                model_size = num * 1024**3
+            except (ValueError, AttributeError):
+                pass
+
     headroom = 1 * 1024**3  # 1GB headroom
     required = model_size + headroom
 
@@ -661,16 +768,19 @@ def _check_model_disk_space(key: str) -> bool:
         return True  # If we can't check, don't block
 
 
-def download_and_start(key: str) -> bool:
+def download_and_start(key: str, quant: str = None) -> bool:
     """
     Download a model, switch to it, and start the server.
     Used by the lock screen "Download" button.
 
+    quant is locked in at the start and passed through the entire chain —
+    never re-resolved from config mid-flight.
+
     Holds _download_lock across the ENTIRE lifecycle (download→start)
-    so no second request can slip in between. (#3)
+    so no second request can slip in between.
 
     Updates download state through: downloading → starting → ready/error.
-    On failure, leaves error state sticky so the retry screen shows. (#4)
+    On failure, leaves error state sticky so the retry screen shows.
     """
     if not _download_lock.acquire(blocking=False):
         logger.warning(f"Lifecycle already in progress, rejecting {key}")
@@ -680,12 +790,25 @@ def download_and_start(key: str) -> bool:
         # Clear any previous sticky error
         _clear_error_state()
 
-        # Disk space check (#8)
-        if not _check_model_disk_space(key):
+        # Lock in variant at start — save preference if provided
+        if quant:
+            # Validate quant exists in model's variants
+            info = get_model_info(key)
+            if info and any(v["quant"] == quant for v in info.get("variants", [])):
+                variants = dict(settings.model_variants)
+                variants[key] = quant
+                settings.save_runtime_overrides({"model_variants": variants})
+
+        # Resolve ONCE — locked in for entire chain
+        hf_file = get_effective_hf_file(key)
+        active_quant = get_active_quant(key)
+
+        # Disk space check with variant-specific size
+        if not _check_model_disk_space(key, active_quant):
             return False
 
-        # Download phase
-        ok = _do_download(key)
+        # Download phase — pass locked-in params
+        ok = _do_download(key, hf_file=hf_file, quant=active_quant)
         if not ok:
             # Error state is already set by _do_download — leave it sticky
             return False
@@ -693,9 +816,9 @@ def download_and_start(key: str) -> bool:
         # Transition to "starting" state
         _set_download_state(status="starting", message="Starting model server...")
 
-        # Switch active model and start server with extended timeout (#7)
+        # Switch active model and start server with extended timeout
         settings.save_runtime_overrides({"active_model": key})
-        started = start_server(key, timeout=180)  # 3 min for cold GGUF load
+        started = start_server(key, timeout=180, hf_file=hf_file)  # 3 min for cold GGUF load
 
         if started:
             _set_download_state(
@@ -704,7 +827,7 @@ def download_and_start(key: str) -> bool:
             )
             return True
         else:
-            # Leave error sticky (#4)
+            # Leave error sticky
             _set_download_state(
                 active=False, status="error",
                 message="Server failed to start. Check GPU/VRAM.",
@@ -718,3 +841,61 @@ def download_and_start(key: str) -> bool:
         return False
     finally:
         _download_lock.release()
+
+
+# ── Delete functions ──────────────────────────────────────────────────
+
+def delete_variant(key: str, quant: str) -> dict:
+    """
+    Delete a specific variant folder. Refuses if active or downloading.
+    mmproj stays (shared per model). Clears stale config preference.
+    """
+    # Guard: refuse if active variant on running server
+    if _active_model_key == key and get_active_quant(key) == quant:
+        return {"ok": False, "error": "Cannot delete the active variant. Switch first."}
+    # Guard: refuse if download in progress for this model
+    dl_state = get_download_state()
+    if dl_state["active"] and dl_state["model"] == key:
+        return {"ok": False, "error": "Download in progress for this model"}
+
+    variant_dir = _models_dir() / key / quant
+    if variant_dir.exists():
+        shutil.rmtree(variant_dir)
+        # Clear stale preference if we just deleted the selected variant
+        if settings.model_variants.get(key) == quant:
+            variants = dict(settings.model_variants)
+            del variants[key]
+            settings.save_runtime_overrides({"model_variants": variants})
+        logger.info(f"Deleted variant {key}/{quant}")
+        return {"ok": True, "message": f"Deleted {quant}"}
+    return {"ok": False, "error": "Variant not found"}
+
+
+def delete_model(key: str) -> dict:
+    """
+    Delete ALL variant folders for a model. mmproj + .huggingface stay.
+    Refuses if model is active or downloading. Clears stale config preference.
+    """
+    if _active_model_key == key:
+        return {"ok": False, "error": "Cannot delete the active model. Switch first."}
+    dl_state = get_download_state()
+    if dl_state["active"] and dl_state["model"] == key:
+        return {"ok": False, "error": "Download in progress for this model"}
+
+    model_dir = _models_dir() / key
+    if model_dir.exists():
+        # Only delete variant subdirs (skip dotfiles like .huggingface, keep mmproj files)
+        deleted = 0
+        for child in model_dir.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                shutil.rmtree(child)
+                deleted += 1
+        # Clear stale preference
+        if key in settings.model_variants:
+            variants = dict(settings.model_variants)
+            del variants[key]
+            settings.save_runtime_overrides({"model_variants": variants})
+        logger.info(f"Deleted {deleted} variant(s) for {key}")
+        return {"ok": True, "message": f"Deleted {deleted} variant(s)"}
+    return {"ok": False, "error": "Model not found"}
+

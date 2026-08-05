@@ -31,7 +31,7 @@ class Embedder:
                 logger.info(f"Loading embedding model: {self._model_name} (~90MB, first-time download)...")
                 self._model = SentenceTransformer(self._model_name)
                 self._initialized = True
-                logger.info(f"Model loaded. Dimensions: {self._model.get_sentence_embedding_dimension()}")
+                logger.info(f"Model loaded. Dimensions: {self._model.get_embedding_dimension()}")
             except ImportError:
                 logger.warning("sentence-transformers not installed. Semantic search disabled.")
                 raise

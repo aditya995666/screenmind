@@ -31,7 +31,6 @@ class VoiceRecorder:
         self._recording = False
         self._audio_data = []
         self._screenshot_path: Optional[Path] = None
-        self._screen = ScreenCapture()
         self._start_time: Optional[float] = None
 
     @property
@@ -127,8 +126,19 @@ class VoiceRecorder:
         return filepath
 
     def _capture_screenshot(self) -> Optional[Path]:
-        """Capture and save a screenshot for the memo."""
-        result = self._screen.capture()
-        if result:
-            return result[0]  # filepath
+        """Capture and save a screenshot for the memo.
+
+        Creates a fresh ScreenCapture instance each time because mss uses
+        GDI handles on Windows which have thread affinity — the handle must
+        be created on the same thread that uses it. Since this is called from
+        the hotkey listener thread (not the main thread), we can't reuse an
+        instance created in __init__.
+        """
+        try:
+            capture = ScreenCapture()
+            result = capture.capture()
+            if result:
+                return result[0]  # filepath
+        except Exception as e:
+            logger.warning(f"Screenshot capture failed: {e}")
         return None
