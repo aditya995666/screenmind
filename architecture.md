@@ -1,7 +1,7 @@
 # ScreenMind — System Architecture
 
 > **Privacy-First Local Screen Activity Journal + AI Memory**  
-> Powered by Gemma 4 E2B (Vision + Audio + Reasoning) via llama.cpp
+> Powered by Gemma 4 (E2B / E4B / 12B — Vision + Audio + Reasoning) via llama.cpp
 
 ---
 
@@ -63,7 +63,7 @@ Screenshot
     ├──▶ EasyOCR (text extraction, ~3-10s, CPU)
     │         │
     │         ▼
-    ├──▶ Gemma 4 E2B (understanding, 12-76s, GPU)  ◀── OCR text fed as context
+    ├──▶ Gemma 4 (understanding, 12-76s, GPU)  ◀── OCR text fed as context
     │         │
     │         ├── Structured JSON: app, category, summary, mood, scene
     │         └── Layout regions: sidebar, chat area, toolbar (accurate mode)
@@ -81,7 +81,7 @@ Screenshot
 
 Four AI models working in concert:
 1. **EasyOCR** — extracts raw screen text (what's written)
-2. **Gemma 4 E2B** — understands what you're doing (the brain)
+2. **Gemma 4** — understands what you're doing (the brain)
 3. **Layout Analyzer** — organizes text by screen region (spatial intelligence)
 4. **MiniLM-L6-v2** — enables "search by meaning" (semantic vectors)
 
@@ -139,7 +139,7 @@ New screenshot → compute pHash → compare with cache[(app, title)]
 
 Cache: LRU OrderedDict, max 30 entries, keyed by `(app_name, window_title[:100])`.
 
-### 3.3 Gemma 4 E2B — Three Analysis Modes
+### 3.3 Gemma 4 — Three Analysis Modes
 
 | Mode | Method | Time | Layout Source |
 |---|---|---|---|
@@ -248,6 +248,8 @@ Meeting Detection:
                            → Combine into final summary
                            (TOPICS / DECISIONS / ACTION ITEMS)
 ```
+
+Gemma 4's encoder-free architecture handles audio natively across all model sizes (E2B, E4B, 12B). No Whisper dependency. Voice memos are always saved to DB even if transcription fails — audio preserved for playback.
 
 ### 3.7 Agent System
 
@@ -489,7 +491,7 @@ Capabilities per platform:
 | Chat response | ~5-15s | Text mode. Vision mode: ~15-30s |
 | Disk per day | ~80-150MB | Screenshots + DB (8hr active use, 40s interval) |
 | RAM usage | ~1.5-2GB | Python + EasyOCR + MiniLM (Gemma in llama-server) |
-| VRAM usage | ~3-4GB | Gemma 4 E2B Q4_K_M via llama-server |
+| VRAM usage | ~3-4GB | Gemma 4 E2B Q4_0 (default). E4B ~6GB, 12B ~10GB |
 
 ### Resource Management
 
@@ -544,17 +546,29 @@ Capabilities per platform:
 
 ---
 
-## 10. Why Gemma 4 E2B
+## 10. Why Gemma 4
+
+### Supported Models
+
+| Model | Variants | VRAM | Audio |
+|---|---|---|---|
+| **Gemma 4 E2B** (2B) — *default* | Q4_0 · Q8_0 · BF16 | ~4 GB | ✅ |
+| **Gemma 4 E4B** (4B) | Q4_0 · Q8_0 · BF16 | ~6 GB | ✅ |
+| **Gemma 4 12B** | IQ3_M · Q4_K_M · Q5_K_M · Q6_K · Q8_0 | ~10 GB | ❌ |
+
+Models are sourced from [ggml-org](https://huggingface.co/ggml-org) (official llama.cpp-compatible GGUFs) and stored in `~/.screenmind/models/`.
+
+E2B is the recommended default — it checks all the boxes:
 
 | Constraint | Why It Rules Out Alternatives |
 |---|---|
-| Must run **continuously in background** | Rules out 12B+ models (too heavy for 4GB VRAM) |
+| Must run **continuously in background** | Rules out 12B+ models on low-VRAM GPUs |
 | Must understand **screenshots natively** | Rules out text-only models |
 | Must stay **100% local** for privacy | Rules out cloud APIs (Gemini, GPT-4V) |
 | Must handle **audio natively** | Rules out models without audio encoder |
 | Must be **fast enough** for 40s cycle | E2B: 12s (fast) to 76s (accurate) |
 
-Gemma 4 E2B is the only model that satisfies all five constraints simultaneously. The model doesn't just power the app — it's what makes this product architecturally possible.
+If you have more VRAM, E4B offers richer analysis. The 12B model gives the best text reasoning but lacks audio input. The Model Hub lets you download, switch, and delete variants from the dashboard.
 
 ---
 
@@ -562,7 +576,7 @@ Gemma 4 E2B is the only model that satisfies all five constraints simultaneously
 
 | Layer | Technology | Why |
 |---|---|---|
-| **Vision + Audio AI** | Gemma 4 E2B via llama.cpp | Only model with vision + audio + reasoning at this size |
+| **Vision + Audio AI** | Gemma 4 (E2B / E4B / 12B) via llama.cpp | Vision + audio + reasoning, runs locally on 4GB+ VRAM |
 | **Inference Server** | llama-server (llama.cpp) | Direct GGUF, OpenAI-compatible API, 8-12% faster than Ollama |
 | **OCR** | EasyOCR | Extracts screen text fed to Gemma as context |
 | **Embeddings** | all-MiniLM-L6-v2 | 80MB, CPU, 384-dim vectors |

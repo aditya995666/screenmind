@@ -14,6 +14,8 @@ The MCP server exposes your ScreenMind data as **tools** that AI assistants can 
 | `get_daily_summary` | Get AI-generated daily summary and standup notes |
 | `capture_now` | Trigger an instant screenshot capture |
 | `get_stats` | Get overall statistics about your screen history |
+| `search_audio` | Search meeting transcripts |
+| `get_screenshot` | Get a screenshot image for a specific activity |
 
 ## Setup
 
@@ -72,7 +74,7 @@ Add to your MCP configuration in `.vscode/mcp.json`:
 
 ### 3. Restart Your AI Client
 
-After saving the configuration, restart your AI client. You should see "ScreenMind" listed as an available MCP server with 6 tools.
+After saving the configuration, restart your AI client. You should see "ScreenMind" listed as an available MCP server with 8 tools.
 
 ## Testing
 
@@ -104,5 +106,5 @@ Once connected, try asking your AI assistant:
 ## Requirements
 
 - ScreenMind must be installed and have captured some screen data
-- For `capture_now` to work, the ScreenMind app must be running (`python -m screenmind`)
+- For `capture_now` to work, the ScreenMind app must be running (`screenmind` or `python -m screenmind`)
 - Python environment with `mcp[cli]` installed

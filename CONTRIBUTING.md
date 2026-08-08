@@ -90,17 +90,26 @@ ScreenMind uses MCP stdio transport — any stray `print()` to stdout corrupts t
 
 ```
 ScreenMind/
-│   ├── api/              # Web dashboard + REST API (Flask)
-│   ├── capture/          # Screen capture (Windows, X11, Wayland)
-│   ├── engine/           # Analysis, LLM client, embeddings, agents
-│   ├── storage/          # SQLite database layer
-│   ├── workers/          # Background workers (audio transcription)
-│   ├── integrations/     # Notion, webhooks, etc.
-│   ├── platform_support/ # OS-specific window detection
-├── tests/            # Test suite (pytest)
-├── screenmind/           # Entry point — starts capture + API server
-│   ├── main.py     # MCP server for IDE integration
-│   ├── config.py         # All configuration and model settings
+├── screenmind/               # Main package
+│   ├── main.py               # Entry point — starts all services
+│   ├── config.py             # Pydantic settings (env + runtime overrides)
+│   ├── launcher.py           # Splash screen launcher (tkinter)
+│   ├── startup.py            # Cross-platform auto-start registration
+│   ├── setup_llama.py        # Auto-detect + install llama-server
+│   ├── screenmind_sdk.py     # SDK for Python plugin agents
+│   ├── mcp_server.py         # MCP server for Claude/Cursor/VS Code
+│   ├── api/                  # Web dashboard + REST API (FastAPI)
+│   ├── assets/               # Bundled logo, favicon
+│   ├── capture/              # Screen capture (mss, Wayland, hotkeys)
+│   ├── engine/               # Analysis, LLM client, embeddings, agents
+│   ├── storage/              # SQLite database layer
+│   ├── workers/              # Background workers (capture, analysis, audio)
+│   ├── integrations/         # Notion, webhooks, Obsidian, notifications
+│   ├── platform_support/     # OS-specific window detection
+│   └── privacy/              # Encryption, sensitive data redaction
+├── tests/                    # Test suite — 29 modules (pytest)
+├── default_agents/           # 4 built-in agents (.md)
+└── docs/                     # BUILD_YOUR_OWN_AGENT.md
 ```
 
 ## Code of Conduct

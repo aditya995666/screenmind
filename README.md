@@ -171,13 +171,12 @@ The numbers above are from a **GTX 1650 (4GB VRAM)** — a worst-case scenario w
 </details>
 
 ### 2. Audio — Voice Memos & Meeting Transcription
-Gemma 4 E2B and E4B have native audio encoders. ScreenMind uses them for:
+Gemma 4's encoder-free architecture handles audio natively across all model sizes. ScreenMind uses it for:
 - Voice memo transcription (hold hotkey → speak → release)
 - Meeting transcription (15s chunks, map-reduce summarization for long meetings)
 
 No Whisper dependency. One model handles everything.
 
-> **Note:** Audio input requires E2B or E4B. The 12B model is text+vision only (no audio encoder).
 
 ### 3. Reasoning — Summaries, Chat, Agents
 - **Daily summaries** with deep reasoning (`think=True`)
@@ -190,7 +189,7 @@ No Whisper dependency. One model handles everything.
 |---|---|---|---|
 | **Gemma 4 E2B** (2B) — *default* | Q4_0 · Q8_0 · BF16 | ~4 GB | ✅ |
 | **Gemma 4 E4B** (4B) | Q4_0 · Q8_0 · BF16 | ~6 GB | ✅ |
-| **Gemma 4 12B** | IQ3_M · Q4_K_M · Q5_K_M · Q6_K · Q8_0 | ~10 GB | ❌ |
+| **Gemma 4 12B** | IQ3_M · Q4_K_M · Q5_K_M · Q6_K · Q8_0 | ~10 GB | ✅ |
 
 E2B is the recommended default — it checks all the boxes:
 
@@ -202,7 +201,7 @@ E2B is the recommended default — it checks all the boxes:
 | Must handle **audio natively** | Rules out models without audio encoder |
 | Must be **fast enough** for 30s cycle | E2B: 12-76s on GTX 1650, ~1-4s on RTX 3060+ |
 
-If you have more VRAM, E4B offers richer analysis. The 12B model gives the best text reasoning but lacks audio input.
+If you have more VRAM, E4B offers richer analysis. The 12B model gives the best text reasoning for complex prompts.
 
 > Models are sourced from [ggml-org](https://huggingface.co/ggml-org) (official llama.cpp-compatible GGUFs) and stored in `~/.screenmind/models/`.
 
