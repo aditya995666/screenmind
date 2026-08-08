@@ -15,14 +15,15 @@
 [![CI](https://github.com/ayushh0110/ScreenMind/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushh0110/ScreenMind/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/ayushh0110/ScreenMind/graph/badge.svg)](https://codecov.io/gh/ayushh0110/ScreenMind)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Gemma 4 E2B](https://img.shields.io/badge/Gemma_4-E2B_Vision+Audio-8B5CF6?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev/gemma)
+[![Gemma 4](https://img.shields.io/badge/Gemma_4-E2B_%7C_E4B_%7C_12B-8B5CF6?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev/gemma)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-Local_Inference-333?style=flat-square)](https://github.com/ggerganov/llama.cpp)
 [![License MIT](https://img.shields.io/badge/License-MIT-10B981?style=flat-square)](LICENSE)
 [![MCP Ready](https://img.shields.io/badge/MCP-Claude_%7C_Cursor_%7C_VSCode-F59E0B?style=flat-square)](MCP_SETUP.md)
+[![Website](https://img.shields.io/badge/Website-screenmind.pages.dev-0a0e1a?style=flat-square&logo=cloudflare&logoColor=white)](https://screenmind.pages.dev)
 
 <br>
 
-[**Features**](#-features) · [**Comparison**](#-how-screenmind-compares) · [**Gemma 4 Deep Dive**](#-how-gemma-4-is-used) · [**Quick Start**](#-quick-start) · [**Architecture**](#-architecture) · [**Agent Platform**](#-agent-platform) · [**MCP**](#-mcp-server-claude--cursor--vs-code) · [**API**](#-api-reference)
+[**Website**](https://screenmind.pages.dev) · [**Features**](#-features) · [**Comparison**](#-how-screenmind-compares) · [**Gemma 4 Deep Dive**](#-how-gemma-4-is-used) · [**Quick Start**](#-quick-start) · [**Architecture**](#-architecture) · [**Agent Platform**](#-agent-platform) · [**MCP**](#-mcp-server-claude--cursor--vs-code) · [**API**](#-api-reference)
 
 <br>
 
@@ -57,17 +58,20 @@
 - **🔬 Gemma 4 Vision Analysis** — Every screenshot analyzed: app detection, activity categorization, mood, scene description, spatial layout regions.
 - **🔍 Hybrid Search** — Semantic embeddings (MiniLM) + FTS5 keyword search. Find anything by *meaning*, not just keywords.
 - **💬 Chat with Memory** — Conversational RAG with follow-up support. Ask "what did Alex say on Discord?" → get the actual message.
-- **🧠 Model Hub** — In-app model download with live progress tracking. Chat and Summary are locked with witty brain animations until the model is ready — then auto-unlock. No terminal needed.
-- **🎙️ Voice Memos** — Hold `Ctrl+Shift+V` → Gemma 4's native audio encoder transcribes. Screenshot captured alongside.
+- **🧠 Model Hub** — In-app model download with **variant selection** (Q4_0, Q8_0, BF16, etc.). Supports Gemma 4 E2B, E4B, and 12B. Chat and Summary are locked with witty brain animations until the model is ready — then auto-unlock. No terminal needed.
+- **🎙️ Voice Memos** — Hold `Ctrl+Shift+V` → Gemma 4's native audio encoder transcribes. Screenshot captured alongside. Audio always saved, even if transcription fails.
 - **🎤 Meeting Transcription** — Auto-detects Zoom/Teams/Meet, records audio, transcribes, generates structured summaries.
 - **📊 Analytics Dashboard** — Category breakdown, top apps, hourly heatmap, meeting stats, focus metrics.
 - **⏪ Day Rewind** — Timelapse playback of your entire day with play/pause/scrub/speed controls.
+- **🚀 Desktop Launcher** — Splash screen with auto-open dashboard. Desktop shortcut auto-created on first run.
+- **🔄 Run at Startup** — Cross-platform auto-start (Windows Registry, macOS LaunchAgent, Linux XDG). Toggle from Settings or CLI.
 
 ### ⚡ Performance
 
 - **Three Analysis Modes** — Accurate (~76s, deep thinking + layout), Balanced (~40s, thinking), or Fast (~12s, no thinking). You choose.
 - **Per-App pHash Cache** — 3-tier caching with app-aware staleness. Communication apps refresh faster than IDEs. Significantly fewer inference calls.
 - **Chat-First GPU Priority** — Chat cancels in-flight analysis instantly. GPU freed in <1s.
+- **Parallel Pipeline** — Dev context detection and embedding generation run concurrently (~2-3s savings per frame).
 - **Auto-Pause Heavy Apps** — Games, video editors, 3D software detected → capture pauses automatically.
 
 ### 🔒 Privacy & Security
@@ -115,13 +119,13 @@
 | **Cost** | ✅ Free forever | Free (personal) / Paid (commercial) | Requires $1000+ Copilot+ PC |
 | **Privacy** | ✅ Zero network calls. Zero telemetry. Ever. | Local-first, optional cloud | Telemetry opt-in. Data stayed local after backlash. |
 | **Min. hardware** | ✅ Any GPU ≥4GB VRAM (or CPU-only) | 8GB RAM, modern CPU | 40 TOPS NPU + 16GB RAM + BitLocker + Windows Hello |
-| **AI architecture** | ✅ Single model — Gemma 4 does vision + audio + reasoning | Multiple models — OCR + Whisper + external LLM | Proprietary NPU model |
+| **AI architecture** | ✅ Single model family — Gemma 4 (E2B / E4B / 12B) does vision + audio + reasoning | Multiple models — OCR + Whisper + external LLM | Proprietary NPU model |
 | **Audio/meetings** | ✅ Native — Gemma 4 audio encoder (no Whisper needed) | Whisper-based transcription | ❌ Not supported |
 | **Smart capture** | ✅ pHash deduplication + idle detection + auto-pause for games | Event-driven (app switches, clicks) | Periodic snapshots |
 | **Search** | ✅ Semantic (MiniLM embeddings) + FTS5 keyword — hybrid fusion | Semantic + keyword + a11y tree | Semantic only (NPU) |
 | **Chat with memory** | ✅ Full conversational RAG with follow-ups and vision fallback | ❌ | ❌ |
 | **Agent system** | ✅ No-code Markdown agents + Python SDK + MCP server | Pipes (TypeScript) + MCP | ❌ |
-| **In-app Model Hub** | ✅ Download, switch, manage models from UI — no terminal | ❌ | ❌ |
+| **In-app Model Hub** | ✅ Download, switch, manage models + variants (Q4_0/Q8_0/BF16) from UI — no terminal | ❌ | ❌ |
 | **Encryption** | ✅ AES (Fernet) + OS keyring | Optional | TPM + BitLocker |
 | **PII auto-redaction** | ✅ Transparent regex — CC (Luhn-validated), SSN, API keys, passwords | AI-based PII model | Content filtering |
 | **Integrations** | ✅ Obsidian · Notion · Webhooks · MCP | MCP, SDK (Tauri/Electron/Swift) | Windows ecosystem only |
@@ -133,7 +137,7 @@
 
 ## 🧠 How Gemma 4 Is Used
 
-Gemma 4 E2B is not a bolt-on — it's architecturally load-bearing. ScreenMind uses **all three modalities**:
+Gemma 4 is not a bolt-on — it's architecturally load-bearing. ScreenMind uses **all three modalities** (E2B shown as default; E4B and 12B also supported):
 
 ### 1. Vision — Screenshot Analysis
 Every screenshot is sent to Gemma 4 with OCR context. It returns structured JSON:
@@ -167,34 +171,46 @@ The numbers above are from a **GTX 1650 (4GB VRAM)** — a worst-case scenario w
 </details>
 
 ### 2. Audio — Voice Memos & Meeting Transcription
-Gemma 4 E2B has a native audio encoder. ScreenMind uses it for:
+Gemma 4 E2B and E4B have native audio encoders. ScreenMind uses them for:
 - Voice memo transcription (hold hotkey → speak → release)
 - Meeting transcription (15s chunks, map-reduce summarization for long meetings)
 
 No Whisper dependency. One model handles everything.
+
+> **Note:** Audio input requires E2B or E4B. The 12B model is text+vision only (no audio encoder).
 
 ### 3. Reasoning — Summaries, Chat, Agents
 - **Daily summaries** with deep reasoning (`think=True`)
 - **Chat answers** grounded in actual screen data (text-first RAG with vision fallback)
 - **Agent execution** — Gemma processes markdown agent prompts with injected screen data
 
-### Why E2B Specifically?
+### Supported Models
+
+| Model | Variants | VRAM | Audio |
+|---|---|---|---|
+| **Gemma 4 E2B** (2B) — *default* | Q4_0 · Q8_0 · BF16 | ~4 GB | ✅ |
+| **Gemma 4 E4B** (4B) | Q4_0 · Q8_0 · BF16 | ~6 GB | ✅ |
+| **Gemma 4 12B** | IQ3_M · Q4_K_M · Q5_K_M · Q6_K · Q8_0 | ~10 GB | ❌ |
+
+E2B is the recommended default — it checks all the boxes:
 
 | Constraint | Why It Rules Out Alternatives |
 |---|---|
-| Must run **continuously in background** | Rules out 12B+ models (too heavy) |
+| Must run **continuously in background** | Rules out 12B+ models on low-VRAM GPUs |
 | Must understand **screenshots natively** | Rules out text-only models |
 | Must stay **100% local** for privacy | Rules out cloud APIs |
 | Must handle **audio natively** | Rules out models without audio encoder |
 | Must be **fast enough** for 30s cycle | E2B: 12-76s on GTX 1650, ~1-4s on RTX 3060+ |
 
-Gemma 4 E2B is the only model that checks all five boxes.
+If you have more VRAM, E4B offers richer analysis. The 12B model gives the best text reasoning but lacks audio input.
+
+> Models are sourced from [ggml-org](https://huggingface.co/ggml-org) (official llama.cpp-compatible GGUFs) and stored in `~/.screenmind/models/`.
 
 ---
 
 ## 🚀 Quick Start
 
-> **Requirements:** Python 3.10+ · GPU recommended (4GB+ VRAM) · ~5GB disk for model
+> **Requirements:** Python 3.10+ · GPU recommended (4GB+ VRAM) · ~2GB disk for model (E2B Q4_0)
 
 #### 1️⃣ Install
 
@@ -205,7 +221,9 @@ pip install screenmind
 #### 2️⃣ Run
 
 ```bash
-screenmind
+screenmind              # Normal start (foreground)
+screenmind --launch     # Splash screen + auto-open dashboard
+screenmind --background # Run silently without console window
 ```
 
 #### 3️⃣ Open → **http://127.0.0.1:7777** 
@@ -213,11 +231,27 @@ screenmind
 On first run, ScreenMind will:
 - Prompt to install AI packages (~2.5GB one-time download)
 - Auto-detect your GPU and download `llama-server` if not found (CUDA/CPU auto-selected)
-- Open the **Model Hub** — download Gemma 4 E2B GGUF (~5GB) with progress tracking right in the UI
+- Open the **Model Hub** — pick your model + quantization variant, download with progress tracking right in the UI
 - Chat and Summary stay locked (🧠💤 *"I need my brain to think!"*) until the model is ready, then auto-unlock
-- Start `llama-server` in background
+- Start `llama-server` in background (or adopt an already-running external server)
 - Show the welcome screen to set up an optional PIN
-- Create `~/.screenmind/` for data storage
+- Create `~/.screenmind/` for data storage, `~/.screenmind/models/` for GGUF files
+- Auto-create a desktop shortcut
+
+<details>
+<summary><b>🖥️ More CLI Options</b></summary>
+
+<br>
+
+```bash
+screenmind --install-startup    # Register to start at system login
+screenmind --uninstall-startup  # Remove from system startup
+screenmind --install-shortcut   # Create desktop shortcut
+screenmind --version            # Show version
+screenmind --help               # Show all options
+```
+
+</details>
 
 <details>
 <summary><b>🔧 Developer Install (from source)</b></summary>
@@ -457,8 +491,12 @@ Full Swagger docs at `http://127.0.0.1:7777/docs`
 | `POST` | `/api/summary/generate` | Generate AI daily summary |
 | `GET` | `/api/agents` | List all agents |
 | `POST` | `/api/agents/{name}/run` | Trigger agent execution |
+| `GET` | `/api/models` | List available models + variants |
+| `POST` | `/api/models/variant` | Set preferred quantization variant |
+| `DELETE`| `/api/models/delete` | Delete a downloaded model variant |
 | `POST` | `/api/capture/pause` | Pause capture |
 | `POST` | `/api/incognito/toggle` | Toggle incognito mode |
+| `POST` | `/api/shutdown` | Graceful shutdown (localhost only) |
 
 ---
 
@@ -479,6 +517,7 @@ All settings configurable via `.env`, environment variables, or the **Settings**
 | `RETENTION_DAYS` | `7` | Auto-delete data older than N days (0 = forever) |
 | `ENCRYPTION_ENABLED` | `false` | Encrypt screenshots at rest |
 | `SENSITIVE_FILTER_ENABLED` | `true` | Redact credit cards, SSNs, API keys |
+| `CAPTURE_PAUSED` | `true` | Persisted capture state across restarts |
 | `SCREENMIND_LOG_LEVEL` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `SCREENMIND_LOG_FILE` | *(none)* | Path to a log file (rotating, 10MB × 3 backups) |
 
@@ -492,7 +531,7 @@ All settings configurable via `.env`, environment variables, or the **Settings**
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| **Vision + Audio AI** | Gemma 4 E2B (via llama.cpp) | Only model with vision + audio + reasoning that runs locally on 4GB VRAM |
+| **Vision + Audio AI** | Gemma 4 (E2B / E4B / 12B via llama.cpp) | Vision + audio + reasoning, runs locally on 4GB+ VRAM |
 | **Inference Server** | llama-server (llama.cpp) | Direct GGUF inference, OpenAI-compatible API |
 | **OCR** | EasyOCR | Extracts screen text fed to Gemma as context |
 | **Embeddings** | all-MiniLM-L6-v2 | 80MB, runs on CPU, 384-dim vectors for semantic search |
@@ -548,10 +587,16 @@ screenmind/
 ├── screenmind/                    # Entry point — starts all services
 ├── config.py                  # Pydantic settings (env + runtime overrides)
 ├── setup_llama.py             # Auto-detect + install llama-server
+├── launcher.py                # Splash screen launcher (tkinter)
+├── startup.py                 # Cross-platform auto-start registration
 ├── requirements.txt           # Full Python dependencies
 ├── requirements-test.txt      # Lightweight CI deps (no PyTorch)
 │   ├── main.py              # MCP server for Claude/Cursor/VS Code
 ├── screenmind_sdk.py          # SDK for Python plugin agents
+│
+│   ├── assets/                    # Bundled resources
+│   ├── logo.png               # App logo
+│   └── favicon.ico            # Browser favicon
 │
 │   ├── capture/                   # Screenshot capture layer
 │   ├── screen.py              # Capture facade (mss / Wayland backend)
@@ -608,7 +653,7 @@ screenmind/
 │   ├── meeting-actions.md
 │   └── code-changelog.md
 │
-├── tests/                     # pytest test suite (25 modules)
+├── tests/                     # pytest test suite (29 modules)
 │   ├── conftest.py            # Shared fixtures
 │   └── test_*.py              # Unit + integration tests
 │
@@ -625,14 +670,17 @@ screenmind/
 | Scenario | Behavior |
 |----------|----------|
 | **llama-server not found** | Auto-downloads correct binary from GitHub releases (CUDA/CPU auto-detected). Checks disk space first. |
+| **External llama-server running** | Auto-detects and adopts. Known models show as active; unknown models show amber warning. |
 | **Model not downloaded** | Model Hub shows lock screen with download cards. Progress tracked in UI. Chat/Summary locked until ready. |
 | **GPU out of memory** | Detects OOM, retries with delay, re-queues on persistent failure. |
 | **Duplicate frames** | pHash dedup skips identical screenshots (threshold: 8 hamming distance). |
 | **Stale queue items** | Captures >3 min old auto-skipped. Backfilled during idle. |
 | **App in blocklist** | Silently skips — no screenshot saved. |
 | **Meeting app closed** | Process-alive check + silence detection + 5-min hard timeout. |
+| **Voice transcription fails** | Audio + screenshot saved to DB regardless. Playable in Memos tab. `<unusedN>` garbage tokens auto-stripped. |
 | **Chat during analysis** | Cancels in-flight inference, frees GPU in <1s, re-queues analysis. |
-| **Crash recovery** | Stale meetings cleaned on startup. Unanalyzed entries backfilled. |
+| **Re-analyze triggered** | Full context (app name, title, URLs) passed — same quality as original analysis. |
+| **Crash recovery** | Stale meetings cleaned on startup. Unanalyzed entries backfilled. Capture pause state persisted. |
 
 ---
 
@@ -674,7 +722,7 @@ CI runs automatically on push/PR via GitHub Actions using the lightweight deps.
 
 ## 🤝 Contributing
 
-Contributions welcome! Here are some high-impact areas:
+Contributions welcome! See [**CONTRIBUTING.md**](CONTRIBUTING.md) for guidelines. High-impact areas:
 
 - 🍎 **macOS/Linux testing** — platform adapters exist, need real hardware testing
 - 🐳 **Docker container** — one-command setup
@@ -716,7 +764,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <br>
 
-**Built with 🧠 Gemma 4 E2B · 🔒 100% Local · 🚀 Zero Cloud Dependencies**
+**Built with 🧠 Gemma 4 · 🔒 100% Local · 🚀 Zero Cloud Dependencies**
 
 *Vision + Audio + Reasoning — all three modalities, one model, your machine.*
 

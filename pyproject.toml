@@ -89,7 +89,7 @@ dev = [
 screenmind = "screenmind.main:run"
 
 [project.urls]
-Homepage = "https://github.com/ayushh0110/ScreenMind"
+Homepage = "https://screenmind.pages.dev"
 Repository = "https://github.com/ayushh0110/ScreenMind"
 Documentation = "https://github.com/ayushh0110/ScreenMind#readme"
 Changelog = "https://github.com/ayushh0110/ScreenMind/releases"
