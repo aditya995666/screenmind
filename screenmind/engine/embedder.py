@@ -31,7 +31,15 @@ class Embedder:
                 logger.info(f"Loading embedding model: {self._model_name} (~90MB, first-time download)...")
                 self._model = SentenceTransformer(self._model_name)
                 self._initialized = True
-                logger.info(f"Model loaded. Dimensions: {self._model.get_embedding_dimension()}")
+                # Dimension accessor was renamed get_sentence_embedding_dimension ->
+                # get_embedding_dimension across sentence-transformers 4.x->5.x.
+                # Feature-detect (prefer new name to avoid the deprecation warning),
+                # and fall back to the known dimension so this log line can never
+                # abort model loading / disable semantic search.
+                _dim_fn = (getattr(self._model, "get_embedding_dimension", None)
+                           or getattr(self._model, "get_sentence_embedding_dimension", None))
+                _dim = _dim_fn() if _dim_fn else self.dimensions
+                logger.info(f"Model loaded. Dimensions: {_dim}")
             except ImportError:
                 logger.warning("sentence-transformers not installed. Semantic search disabled.")
                 raise
