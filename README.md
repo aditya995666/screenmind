@@ -151,7 +151,7 @@ E2B is the recommended default — it checks all the boxes:
 
 If you have more VRAM, E4B offers richer analysis. The 12B model gives the best text reasoning for complex prompts.
 
-> Models are sourced from [ggml-org](https://huggingface.co/ggml-org) (official llama.cpp-compatible GGUFs) and stored in `~/.screenmind/models/`.
+
 
 ---
 
@@ -172,9 +172,6 @@ screenmind              # Normal start (foreground)
 screenmind --launch     # Splash screen + auto-open dashboard
 screenmind --background # Run silently without console window
 ```
-
-#### 3️⃣ Open → **http://127.0.0.1:7777** 
-
 On first run, ScreenMind will:
 - Prompt to install AI packages (~2.5GB one-time download)
 - Auto-detect your GPU and download `llama-server` if not found (CUDA/CPU auto-selected)
@@ -188,16 +185,6 @@ On first run, ScreenMind will:
 <details>
 <summary><b>🖥️ More CLI Options</b></summary>
 
-<br>
-
-```bash
-screenmind --install-startup    # Register to start at system login
-screenmind --uninstall-startup  # Remove from system startup
-screenmind --install-shortcut   # Create desktop shortcut
-screenmind --version            # Show version
-screenmind --help               # Show all options
-```
-
 </details>
 
 <details>
@@ -206,14 +193,12 @@ screenmind --help               # Show all options
 <br>
 
 ```bash
-git clone https://github.com/ayushh0110/ScreenMind.git
 cd ScreenMind
 
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # macOS/Linux
 
-pip install -e ".[ai,dev]"
 ```
 
 </details>
@@ -689,13 +674,6 @@ If you find ScreenMind useful, please consider:
 - **📣 Share it** — tell others about privacy-first AI
 
 <div align="center">
-
-<br>
-
-<a href="https://github.com/ayushh0110/ScreenMind/stargazers"><img src="https://img.shields.io/github/stars/ayushh0110/ScreenMind?style=social" alt="Stars"></a>
-<a href="https://github.com/ayushh0110/ScreenMind/network/members"><img src="https://img.shields.io/github/forks/ayushh0110/ScreenMind?style=social" alt="Forks"></a>
-
-<br>
 
 </div>
 
